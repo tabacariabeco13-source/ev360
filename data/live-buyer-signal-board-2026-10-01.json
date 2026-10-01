@@ -1,0 +1,94 @@
+{
+  "date": "2026-10-01",
+  "status": "LIVE_BUYER_SIGNAL_BOARD",
+  "interpretation": "sample of current public demand, not a census",
+  "leads": [
+    {
+      "segment": "DTC general",
+      "budget_usd": 2000,
+      "posted": "2026-09-29",
+      "scope": "research, winner iterations, production-ready briefs, learning loop",
+      "type": "ongoing/contract-to-hire"
+    },
+    {
+      "segment": "DTC 7-figure",
+      "budget_usd": 3000,
+      "posted": "2026-09-28",
+      "scope": "research, hooks, scripts, briefs, testing, performance iteration",
+      "type": "contract-to-hire"
+    },
+    {
+      "segment": "skincare",
+      "budget_usd": 8000,
+      "posted": "2026-09-26",
+      "scope": "head of creative strategy, UGC/editor direction, ROAS accountability",
+      "type": "contract-to-hire"
+    },
+    {
+      "segment": "supplement",
+      "budget_usd": 3500,
+      "posted": "2026-09-21",
+      "scope": "Meta/TikTok concepts, compliant claims, roadmap, winners/losers",
+      "type": "ongoing"
+    },
+    {
+      "segment": "health/wellness",
+      "budget_usd": 5000,
+      "posted": "2026-09-30",
+      "scope": "research, concepts, briefs, compliance, weekly performance loop",
+      "type": "contract-to-hire; needs 3"
+    },
+    {
+      "segment": "supplement",
+      "budget_usd": 1250,
+      "posted": "2026-09-29",
+      "scope": "performance creative strategy, creative engine",
+      "type": "contract-to-hire"
+    },
+    {
+      "segment": "skincare",
+      "budget_usd": 65,
+      "posted": "2026-09-30",
+      "scope": "research, angles/hooks, creative direction",
+      "type": "test/contract-to-hire"
+    },
+    {
+      "segment": "agency/multi-brand",
+      "budget_usd": 3000,
+      "posted": "2026-09-21",
+      "scope": "8-12 briefs/day across 4-5 brands; QA; performance loop",
+      "type": "ongoing"
+    },
+    {
+      "segment": "DTC",
+      "budget_usd": 2500,
+      "posted": "2026-09-01",
+      "scope": "20+ briefs/week; repeatable testing engine",
+      "type": "ongoing"
+    },
+    {
+      "segment": "multi-shop ecommerce",
+      "budget_usd": 2000,
+      "posted": "2026-08-27",
+      "scope": "multiple brands, market localization, performance feedback",
+      "type": "complex project"
+    },
+    {
+      "segment": "home/lighting",
+      "budget_usd": 500,
+      "posted": "2026-09-18",
+      "scope": "video/static strategy, content roadmap",
+      "type": "contract-to-hire"
+    },
+    {
+      "segment": "health/wellness consulting",
+      "budget_usd": 1300,
+      "posted": "2026-09-16",
+      "scope": "analyze validated systems, explain why winners work, next roadmap",
+      "type": "one-time consulting"
+    }
+  ],
+  "strongest_wedge": "agency_or_portfolio_distribution",
+  "largest_blocker": "no attributable performance portfolio",
+  "spend_gate": "no recurring spend before paid proof; any founder-funded creative proof requires explicit authorization"
+}
