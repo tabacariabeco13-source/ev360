@@ -1,0 +1,52 @@
+{
+  "version": "0.1",
+  "created_at": "2026-10-01",
+  "mode": "ZERO_CASH_VALIDATION",
+  "paid_pilot": {
+    "name": "Creative Performance Spec Pilot",
+    "price_usd": 149,
+    "paid_generation": false
+  },
+  "prospects": [
+    {
+      "company": "Dr.Delagen",
+      "vertical": "beauty",
+      "market": "US/AU/CA",
+      "product": "Hydrolyzed Collagen Age Defying Mask",
+      "stage": "SPEC_READY",
+      "risk": "health_claims_review",
+      "concepts": [
+        "overnight ritual",
+        "45+ identity framing",
+        "mechanism before miracle"
+      ]
+    },
+    {
+      "company": "Nicebeam",
+      "vertical": "beauty_device",
+      "market": "US",
+      "product": "LED Red Light Therapy Face Mask",
+      "stage": "SPEC_READY",
+      "risk": "medical_wellness_claims_review",
+      "concepts": [
+        "10-minute ritual",
+        "four wavelengths/two modes",
+        "hands-free convenience"
+      ]
+    },
+    {
+      "company": "Purolabs",
+      "vertical": "supplement",
+      "market": "UK",
+      "product": "Collagen Complex",
+      "stage": "SPEC_READY",
+      "risk": "supplement_claims_review",
+      "concepts": [
+        "beauty-from-within routine",
+        "review-language mining",
+        "winner genealogy"
+      ]
+    }
+  ],
+  "gate": "DO_NOT_SPEND_UNTIL_PAID_PILOT"
+}
