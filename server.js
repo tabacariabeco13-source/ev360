@@ -6,6 +6,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { buildCreativeTaxonomy, scoreNextBestTest, selectProvider, deriveLearning, commercialReadiness, policyEnvelope } from './lib/decision-core.mjs';
 import { scoreProspect, buildOutreachBrief } from './lib/sales-core.mjs';
+import { capacityAssessment, quoteGuard } from './lib/capacity-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -450,6 +451,15 @@ app.post('/api/sales/rank', (req,res)=>{
   const ranked=leads.map(x=>({...x,decision:scoreProspect(x),outreach:buildOutreachBrief(x)}))
     .sort((a,b)=>b.decision.score-a.decision.score);
   res.json({recommended:ranked[0]||null,ranked});
+});
+
+
+app.post('/api/capacity/assess', (req,res)=>{
+  res.json(capacityAssessment(req.body||{}));
+});
+
+app.post('/api/pricing/guard', (req,res)=>{
+  res.json(quoteGuard(req.body||{}));
 });
 
 app.get('/api/owner', async (req,res)=>{
