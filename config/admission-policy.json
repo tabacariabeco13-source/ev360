@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-02",
+  "measured_throughput_state": "NOT_YET_ESTABLISHED",
+  "simultaneous_full_pilots_cap": 2,
+  "maximum_active_buyers_with_staggered_phases": 4,
+  "eight_full_deliveries_claim_allowed": false,
+  "overflow_strategy": [
+    "paid discovery/spec phase",
+    "staggered start dates",
+    "scope reduction",
+    "provider/human capacity only if economics pass and owner authorizes spend"
+  ],
+  "promotion_rule": "Increase concurrency only after representative throughput and quality-pass rate are measured."
+}
