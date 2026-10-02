@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { buildCreativeTaxonomy, scoreNextBestTest, selectProvider, deriveLearning, commercialReadiness, policyEnvelope } from './lib/decision-core.mjs';
+import { scoreProspect, buildOutreachBrief } from './lib/sales-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -430,6 +431,25 @@ app.post('/api/seed/universal-demo', async (req,res)=>{
   await pool.query('insert into tenants(id,name,country,locale,currency) values($1,$2,$3,$4,$5) on conflict(id) do nothing',[tenant.id,tenant.name,tenant.country,tenant.locale,tenant.currency]);
   for(const x of products)await pool.query('insert into products(id,tenant_id,name,category,price,cost,stock,objective,metadata) values($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict(id) do update set price=excluded.price,cost=excluded.cost,stock=excluded.stock,objective=excluded.objective',[x.id,tenant.id,x.name,x.category,x.price,x.cost,x.stock,x.objective,{caseZero:false}]);
   res.json({ok:true,tenant,products});
+});
+
+
+app.get('/api/sales/leads', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'data','live-prospects-2026-10-02.json');
+    const board=JSON.parse(fs.readFileSync(p,'utf8'));
+    const ranked=board.leads.map(x=>({...x,decision:scoreProspect(x)})).sort((a,b)=>b.decision.score-a.decision.score);
+    res.json({...board,ranked});
+  }catch(e){
+    res.status(500).json({error:'live prospect board unavailable'});
+  }
+});
+
+app.post('/api/sales/rank', (req,res)=>{
+  const leads=Array.isArray(req.body.leads)?req.body.leads:[req.body];
+  const ranked=leads.map(x=>({...x,decision:scoreProspect(x),outreach:buildOutreachBrief(x)}))
+    .sort((a,b)=>b.decision.score-a.decision.score);
+  res.json({recommended:ranked[0]||null,ranked});
 });
 
 app.get('/api/owner', async (req,res)=>{
