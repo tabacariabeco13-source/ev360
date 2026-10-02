@@ -2,6 +2,7 @@ import express from 'express';
 import pg from 'pg';
 import crypto from 'crypto';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const { Pool } = pg;
@@ -15,7 +16,29 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSL === 'disable' ? false : { rejectUnauthorized: false } }) : null;
-const mem = { tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], state: null };
+const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || path.join(__dirname, 'data', 'local-db.json');
+const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], state: null });
+let mem = emptyMem();
+
+function loadLocal(){
+  if(pool) return;
+  try{
+    fs.mkdirSync(path.dirname(LOCAL_DB_PATH), { recursive:true });
+    if(fs.existsSync(LOCAL_DB_PATH)){
+      const parsed = JSON.parse(fs.readFileSync(LOCAL_DB_PATH,'utf8'));
+      mem = { ...emptyMem(), ...parsed };
+    } else {
+      fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(mem,null,2));
+    }
+  }catch(e){ console.error('Local persistence load failed',e); }
+}
+function saveLocal(){
+  if(pool) return;
+  try{
+    fs.mkdirSync(path.dirname(LOCAL_DB_PATH), { recursive:true });
+    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(mem,null,2));
+  }catch(e){ console.error('Local persistence save failed',e); }
+}
 
 const id = () => crypto.randomUUID();
 const now = () => new Date().toISOString();
@@ -40,6 +63,12 @@ async function initDb(){
     );
     create table if not exists stock_plans(
       id text primary key, tenant_id text not null references tenants(id) on delete cascade, product_id text not null references products(id) on delete cascade, deadline date not null, target_stock integer not null default 0, plan jsonb not null default '{}'::jsonb, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+    );
+    create table if not exists economics(
+      id text primary key, tenant_id text references tenants(id) on delete set null, prospect_id text references prospects(id) on delete set null, job_id text references jobs(id) on delete set null,
+      quote_usd numeric not null default 0, cash_received_usd numeric not null default 0, provider_cost_usd numeric not null default 0,
+      infra_cost_usd numeric not null default 0, payment_fees_usd numeric not null default 0, owner_hours numeric not null default 0,
+      owner_hour_value_usd numeric not null default 0, notes text, created_at timestamptz not null default now()
     );
   `);
 }
@@ -103,26 +132,26 @@ function stockRecovery({stock=0,cost=0,price=0,deadline}){
 
 async function rows(query, params=[]){ return (await pool.query(query,params)).rows; }
 
-app.get('/api/health', async (req,res)=>{ let db='memory'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.10.0',db,time:now(),costMode:'ZERO_CASH_GUARD'}); });
+app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.11.0',db,time:now(),costMode:'ZERO_CASH_GUARD'}); });
 
 app.get('/api/bootstrap', async (req,res)=>{
   if(!pool) return res.json(mem);
-  const [tenants,products,jobs,feedback,prospects,stockPlans] = await Promise.all([
-    rows('select * from tenants order by created_at'),rows('select * from products order by created_at'),rows('select * from jobs order by created_at desc limit 200'),rows('select * from feedback order by created_at desc limit 200'),rows('select * from prospects order by created_at desc limit 200'),rows('select * from stock_plans order by created_at desc limit 200')
+  const [tenants,products,jobs,feedback,prospects,stockPlans,economics] = await Promise.all([
+    rows('select * from tenants order by created_at'),rows('select * from products order by created_at'),rows('select * from jobs order by created_at desc limit 200'),rows('select * from feedback order by created_at desc limit 200'),rows('select * from prospects order by created_at desc limit 200'),rows('select * from stock_plans order by created_at desc limit 200'),rows('select * from economics order by created_at desc limit 200')
   ]);
-  res.json({tenants,products,jobs,feedback,prospects,stockPlans});
+  res.json({tenants,products,jobs,feedback,prospects,stockPlans,economics});
 });
 
 app.post('/api/tenants', async (req,res)=>{
   const t={id:req.body.id||id(),name:req.body.name||'New tenant',country:req.body.country||'US',locale:req.body.locale||'en-US',currency:req.body.currency||'USD',created_at:now()};
-  if(!pool){mem.tenants.push(t);return res.json(t)}
+  if(!pool){mem.tenants.push(t);saveLocal();return res.json(t)}
   res.json((await pool.query('insert into tenants(id,name,country,locale,currency) values($1,$2,$3,$4,$5) returning *',[t.id,t.name,t.country,t.locale,t.currency])).rows[0]);
 });
 
 app.post('/api/products', async (req,res)=>{
   const p={id:req.body.id||id(),tenant_id:req.body.tenant_id,name:req.body.name,category:req.body.category||'general',price:Number(req.body.price||0),cost:Number(req.body.cost||0),stock:Number(req.body.stock||0),objective:req.body.objective||'',metadata:req.body.metadata||{},created_at:now()};
   if(!p.tenant_id||!p.name) return res.status(400).json({error:'tenant_id and name required'});
-  if(!pool){mem.products.push(p);return res.json(p)}
+  if(!pool){mem.products.push(p);saveLocal();return res.json(p)}
   res.json((await pool.query('insert into products(id,tenant_id,name,category,price,cost,stock,objective,metadata) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *',[p.id,p.tenant_id,p.name,p.category,p.price,p.cost,p.stock,p.objective,p.metadata])).rows[0]);
 });
 
@@ -135,7 +164,7 @@ app.post('/api/jobs', async (req,res)=>{
   const policy=policyGate(req.body); if(policy.level==='BLOCKED') return res.status(409).json({error:'POLICY_BLOCKED',policy});
   const d=director(req.body); const chosen=d.concepts[Number(req.body.conceptIndex||0)%d.concepts.length]; const scenes=makeScenes({productName:req.body.productName||'product',concept:chosen,vertical:d.vertical});
   const j={id:id(),tenant_id:req.body.tenant_id,product_id:req.body.product_id||null,status:'AWAITING_ASSETS',country:req.body.country||'US',channel:req.body.channel||'Meta / Instagram',business_model:req.body.business_model||'DTC',vertical:req.body.vertical||'general',objective:req.body.objective||'sales',direction:{...chosen,vertical:d.vertical},policy,cost_guard:{authorizedUsd:0,paidProvider:false,mode:'ATLAS_MANUAL_ZERO_CASH'},scenes,created_at:now(),updated_at:now()};
-  if(!pool){mem.jobs.unshift(j);return res.json(j)}
+  if(!pool){mem.jobs.unshift(j);saveLocal();return res.json(j)}
   res.json((await pool.query('insert into jobs(id,tenant_id,product_id,status,country,channel,business_model,vertical,objective,direction,policy,cost_guard,scenes) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *',[j.id,j.tenant_id,j.product_id,j.status,j.country,j.channel,j.business_model,j.vertical,j.objective,j.direction,j.policy,j.cost_guard,j.scenes])).rows[0]);
 });
 
@@ -145,20 +174,20 @@ app.post('/api/jobs/:id/assets', async (req,res)=>{
   const unique=new Set(assets.map(a=>String(a.dataUrl||a.url||a.name||''))).size;
   if(unique<3) return res.status(400).json({error:'Similarity Guard: at least 3 distinct scene assets required'});
   const patch={assets,assetCount:assets.length,importedAt:now(),qa:{freshAssets:true,distinctAssets:true,productFidelity:'MANUAL_REVIEW_REQUIRED',ctaPresent:true}};
-  if(!pool){const j=mem.jobs.find(x=>x.id===req.params.id);if(!j)return res.status(404).json({error:'job not found'});j.direction={...j.direction,...patch};j.status='READY_FOR_RENDER';j.updated_at=now();return res.json(j)}
+  if(!pool){const j=mem.jobs.find(x=>x.id===req.params.id);if(!j)return res.status(404).json({error:'job not found'});j.direction={...j.direction,...patch};j.status='READY_FOR_RENDER';j.updated_at=now();saveLocal();return res.json(j)}
   const out=(await pool.query("update jobs set direction=direction || $2::jsonb,status='READY_FOR_RENDER',updated_at=now() where id=$1 returning *",[req.params.id,JSON.stringify(patch)])).rows[0]; return out?res.json(out):res.status(404).json({error:'job not found'});
 });
 
 app.post('/api/jobs/:id/feedback', async (req,res)=>{
   const verdict=String(req.body.verdict||'NEUTRAL').toUpperCase(); const f={id:id(),tenant_id:req.body.tenant_id,job_id:req.params.id,verdict,notes:req.body.notes||'',created_at:now()};
-  if(!pool){mem.feedback.unshift(f);return res.json({...f,nextAction:verdict==='WINNER'?'CONTROLLED_VARIATIONS':verdict==='LOSER'?'NEW_HYPOTHESIS':'KEEP_LEARNING'})}
+  if(!pool){mem.feedback.unshift(f);saveLocal();return res.json({...f,nextAction:verdict==='WINNER'?'CONTROLLED_VARIATIONS':verdict==='LOSER'?'NEW_HYPOTHESIS':'KEEP_LEARNING'})}
   await pool.query('insert into feedback(id,tenant_id,job_id,verdict,notes) values($1,$2,$3,$4,$5)',[f.id,f.tenant_id,f.job_id,f.verdict,f.notes]);
   res.json({...f,nextAction:verdict==='WINNER'?'CONTROLLED_VARIATIONS':verdict==='LOSER'?'NEW_HYPOTHESIS':'KEEP_LEARNING'});
 });
 
 app.post('/api/stock-recovery', async (req,res)=>{
   const plan=stockRecovery(req.body); const s={id:id(),tenant_id:req.body.tenant_id,product_id:req.body.product_id,deadline:req.body.deadline,target_stock:0,plan,created_at:now(),updated_at:now()};
-  if(!pool){mem.stockPlans.unshift(s);return res.json(s)}
+  if(!pool){mem.stockPlans.unshift(s);saveLocal();return res.json(s)}
   res.json((await pool.query('insert into stock_plans(id,tenant_id,product_id,deadline,target_stock,plan) values($1,$2,$3,$4,$5,$6) returning *',[s.id,s.tenant_id,s.product_id,s.deadline,s.target_stock,s.plan])).rows[0]);
 });
 
@@ -166,7 +195,7 @@ app.post('/api/prospects/spec', async (req,res)=>{
   const d=director({vertical:req.body.vertical||'general',productName:req.body.product||req.body.company}); const policy=policyGate({country:req.body.country||'US',channel:req.body.channel||'Meta / Instagram',category:req.body.category||'general'});
   const spec={observedNeed:req.body.observed_need||'',direction:d.concepts[0],hypotheses:d.concepts.slice(0,3),policy,cta:'Reply to review the private creative direction and test plan.',commercialReadiness:policy.level==='BLOCKED'?'BLOCKED':'SPEC_READY'};
   const p={id:id(),tenant_id:req.body.tenant_id||null,company:req.body.company,country:req.body.country||'US',url:req.body.url||'',observed_need:req.body.observed_need||'',product:req.body.product||'',vertical:req.body.vertical||'general',channel:req.body.channel||'Meta / Instagram',spec,stage:'QUALIFIED',created_at:now(),updated_at:now()};
-  if(!pool){mem.prospects.unshift(p);return res.json(p)}
+  if(!pool){mem.prospects.unshift(p);saveLocal();return res.json(p)}
   res.json((await pool.query('insert into prospects(id,tenant_id,company,country,url,observed_need,product,vertical,channel,spec,stage) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *',[p.id,p.tenant_id,p.company,p.country,p.url,p.observed_need,p.product,p.vertical,p.channel,p.spec,p.stage])).rows[0]);
 });
 
@@ -180,7 +209,7 @@ app.post('/api/seed/beco13', async (req,res)=>{
     {id:'doce',name:'Doce',category:'food',price:2,cost:0,stock:0,objective:'impulse_sales'},
     {id:'plastic-cone',name:'Plastic Cone',category:'smoking_accessory',price:8,cost:2.5,stock:4000,objective:'stock_recovery'}
   ];
-  if(!pool){if(!mem.tenants.some(x=>x.id==='beco13'))mem.tenants.push({...tenant,created_at:now()});for(const x of products)if(!mem.products.some(p=>p.id===x.id))mem.products.push({...x,tenant_id:'beco13',metadata:{caseZero:true},created_at:now()});return res.json({ok:true,tenant,products})}
+  if(!pool){if(!mem.tenants.some(x=>x.id==='beco13'))mem.tenants.push({...tenant,created_at:now()});for(const x of products)if(!mem.products.some(p=>p.id===x.id))mem.products.push({...x,tenant_id:'beco13',metadata:{caseZero:true},created_at:now()});saveLocal();return res.json({ok:true,tenant,products})}
   await pool.query('insert into tenants(id,name,country,locale,currency) values($1,$2,$3,$4,$5) on conflict(id) do nothing',[tenant.id,tenant.name,tenant.country,tenant.locale,tenant.currency]);
   for(const x of products)await pool.query("insert into products(id,tenant_id,name,category,price,cost,stock,objective,metadata) values($1,'beco13',$2,$3,$4,$5,$6,$7,$8) on conflict(id) do update set price=excluded.price,cost=excluded.cost,stock=excluded.stock,objective=excluded.objective",[x.id,x.name,x.category,x.price,x.cost,x.stock,x.objective,{caseZero:true}]);
   res.json({ok:true,tenant,products});
@@ -189,11 +218,54 @@ app.post('/api/seed/beco13', async (req,res)=>{
 app.get('/api/jobs', async (req,res)=>{ if(!pool)return res.json(mem.jobs);res.json(await rows('select * from jobs order by created_at desc limit 200')); });
 app.get('/api/jobs/:id', async (req,res)=>{ if(!pool){const j=mem.jobs.find(x=>x.id===req.params.id);return j?res.json(j):res.status(404).json({error:'job not found'})} const out=(await pool.query('select * from jobs where id=$1',[req.params.id])).rows[0];return out?res.json(out):res.status(404).json({error:'job not found'}); });
 
+
+app.patch('/api/prospects/:id/stage', async (req,res)=>{
+  const stage=String(req.body.stage||'QUALIFIED').toUpperCase();
+  const allowed=new Set(['DISCOVERED','QUALIFIED','SPEC_READY','APPROVED_FOR_CONTACT','CONTACTED','REPLIED','PAID_TEST','PROPOSAL','WON','LOST']);
+  if(!allowed.has(stage)) return res.status(400).json({error:'invalid stage'});
+  if(!pool){
+    const p=mem.prospects.find(x=>x.id===req.params.id); if(!p)return res.status(404).json({error:'prospect not found'});
+    p.stage=stage;p.updated_at=now();saveLocal();return res.json(p);
+  }
+  const out=(await pool.query('update prospects set stage=$2,updated_at=now() where id=$1 returning *',[req.params.id,stage])).rows[0];
+  return out?res.json(out):res.status(404).json({error:'prospect not found'});
+});
+
+app.post('/api/seed/client-attack', async (req,res)=>{
+  const leads=[
+    {id:'lead-a1',company:'Upwork buyer — Meta Creative Strategist',country:'US',url:'https://www.upwork.com/freelance-jobs/apply/Creative-Strategist-for-Meta-Ads-Facebook-Instagram_~022104980694095225838/',observed_need:'Research → angles → hooks → scripts → briefs → QA → performance learning',product:'Creative Strategy',vertical:'general',channel:'Meta / Instagram',stage:'SPEC_READY',spec:{budget:'US$500 fixed',priority:'A1',barrier:'spec work accepted',next_action:'Owner approval then apply with CONCEPT pack'}},
+    {id:'lead-a2',company:'Upwork buyer — Skincare Paid Social',country:'US',url:'https://www.upwork.com/freelance-jobs/apply/Creative-Strategist-Needed-for-Skincare-Brand-Paid-Social-Ads_~022105362420281732320/',observed_need:'Skincare angles/hooks/UGC brief with contract-to-hire potential',product:'Skincare',vertical:'beauty',channel:'Meta / Instagram',stage:'SPEC_READY',spec:{budget:'US$65 fixed',priority:'A2',barrier:'low ticket proof',next_action:'Strict-scope paid proof'}},
+    {id:'lead-a3',company:'OnlineJobs buyer — Premium Wellness Creative Strategist',country:'US',url:'',observed_need:'Mini-test: 10 hooks + 2 scripts + testing plan; weekly research/hooks/scripts/testing board',product:'Premium wellness',vertical:'health',channel:'Meta / Instagram',stage:'SPEC_READY',spec:{budget:'500 shown / 10hr-week',priority:'A3',barrier:'mini-test requested',next_action:'Submit premium wellness mini-test'}},
+    {id:'lead-b1',company:'Upwork buyer — DTC Wellness Supplements',country:'US',url:'https://www.upwork.com/freelance-jobs/apply/Performance-Creative-Strategist-Meta-DTC-Wellness-Supplements_~022105585975539887328/',observed_need:'Audit → research → angle/hook map → test plan → 5 production briefs',product:'Wellness supplements',vertical:'supplement',channel:'Meta / Instagram',stage:'SPEC_READY',spec:{budget:'US$1,000 fixed',priority:'B1',barrier:'50+ proposals',next_action:'Outside-in spec then apply'}},
+    {id:'lead-p1',company:'Reddit buyer — AI UGC ecommerce',country:'US',url:'',observed_need:'15–30s realistic AI UGC with product fidelity; paid test; ongoing',product:'Ecommerce products',vertical:'general',channel:'Meta / Instagram',stage:'QUALIFIED',spec:{budget:'paid test',priority:'P1',barrier:'portfolio-grade finished AI UGC required',next_action:'Wait for one premium proof video'}}
+  ];
+  if(!pool){
+    for(const x of leads) if(!mem.prospects.some(p=>p.id===x.id)) mem.prospects.unshift({...x,tenant_id:null,created_at:now(),updated_at:now()});
+    saveLocal(); return res.json({ok:true,count:leads.length,leads});
+  }
+  for(const x of leads) await pool.query('insert into prospects(id,tenant_id,company,country,url,observed_need,product,vertical,channel,spec,stage) values($1,null,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict(id) do update set observed_need=excluded.observed_need,spec=excluded.spec,stage=excluded.stage,updated_at=now()',[x.id,x.company,x.country,x.url,x.observed_need,x.product,x.vertical,x.channel,x.spec,x.stage]);
+  res.json({ok:true,count:leads.length,leads});
+});
+
+app.post('/api/economics', async (req,res)=>{
+  const e={id:id(),tenant_id:req.body.tenant_id||null,prospect_id:req.body.prospect_id||null,job_id:req.body.job_id||null,
+    quote_usd:Number(req.body.quote_usd||0),cash_received_usd:Number(req.body.cash_received_usd||0),provider_cost_usd:Number(req.body.provider_cost_usd||0),
+    infra_cost_usd:Number(req.body.infra_cost_usd||0),payment_fees_usd:Number(req.body.payment_fees_usd||0),owner_hours:Number(req.body.owner_hours||0),
+    owner_hour_value_usd:Number(req.body.owner_hour_value_usd||0),notes:req.body.notes||'',created_at:now()};
+  const cashCost=e.provider_cost_usd+e.infra_cost_usd+e.payment_fees_usd;
+  const ownerCost=e.owner_hours*e.owner_hour_value_usd;
+  const calc={cash_cost_usd:cashCost,gross_margin_cash_usd:e.cash_received_usd-cashCost,gross_margin_after_owner_time_usd:e.cash_received_usd-cashCost-ownerCost};
+  if(!pool){mem.economics.unshift({...e,...calc});saveLocal();return res.json({...e,...calc})}
+  const out=(await pool.query('insert into economics(id,tenant_id,prospect_id,job_id,quote_usd,cash_received_usd,provider_cost_usd,infra_cost_usd,payment_fees_usd,owner_hours,owner_hour_value_usd,notes) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *',[e.id,e.tenant_id,e.prospect_id,e.job_id,e.quote_usd,e.cash_received_usd,e.provider_cost_usd,e.infra_cost_usd,e.payment_fees_usd,e.owner_hours,e.owner_hour_value_usd,e.notes])).rows[0];
+  res.json({...out,...calc});
+});
+
 app.get('/api/owner', async (req,res)=>{
-  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,db:'memory'});
-  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans");
+  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,db:'local-json'});
+  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics");
   res.json({...q.rows[0],db:'postgres'});
 });
 
 app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+loadLocal();
 initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
