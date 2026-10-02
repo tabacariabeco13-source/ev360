@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-02",
+  "mission": "We do not make ads. We decide and operate the next best creative move capable of generating revenue while respecting cost, brand, data and market rules.",
+  "proof_policy": {
+    "technical_claim_requires": [
+      "commit_or_live_endpoint",
+      "test_or_runtime_evidence"
+    ],
+    "commercial_claim_requires": [
+      "cash_received_or_contract",
+      "measured_delivery_cost"
+    ],
+    "performance_claim_requires": [
+      "attributable_client_data"
+    ],
+    "compliance_claim_requires": [
+      "country_channel_category_rule_source",
+      "last_checked",
+      "human_review_when_uncertain"
+    ]
+  },
+  "anti_deception": [
+    "no simulated integration called working",
+    "no unverified claim called proven",
+    "no client performance claim without data",
+    "no COMPLETE status with dead external dependency",
+    "no CI success confused with market validation",
+    "no revenue confused with profit",
+    "blockers must be surfaced",
+    "unknown policy defaults to REVIEW"
+  ],
+  "current_truth": {
+    "technical_foundation": "REAL_EARLY_TESTED",
+    "market_demand": "EVIDENCED_NOT_OWN_REVENUE",
+    "product_market_fit": "NOT_PROVEN",
+    "profitability": "NOT_PROVEN",
+    "public_production_url": "NOT_PROVEN",
+    "enterprise_readiness": "NOT_PROVEN"
+  }
+}
