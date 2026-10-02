@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { buildCreativeTaxonomy, scoreNextBestTest, selectProvider, deriveLearning, commercialReadiness, policyEnvelope } from './lib/decision-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -17,7 +18,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSL === 'disable' ? false : { rejectUnauthorized: false } }) : null;
 const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || path.join(__dirname, 'data', 'local-db.json');
-const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], state: null });
+const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], evidence: [], experiments: [], providerInvocations: [], policyChecks: [], state: null });
 let mem = emptyMem();
 
 function loadLocal(){
@@ -69,6 +70,31 @@ async function initDb(){
       quote_usd numeric not null default 0, cash_received_usd numeric not null default 0, provider_cost_usd numeric not null default 0,
       infra_cost_usd numeric not null default 0, payment_fees_usd numeric not null default 0, owner_hours numeric not null default 0,
       owner_hour_value_usd numeric not null default 0, notes text, created_at timestamptz not null default now()
+    );
+    create table if not exists evidence_events(
+      id text primary key, tenant_id text references tenants(id) on delete cascade, product_id text references products(id) on delete set null,
+      prospect_id text references prospects(id) on delete set null, evidence_type text not null, source_url text, source_name text,
+      confidence numeric not null default 50, observed_at timestamptz, payload jsonb not null default '{}'::jsonb, taxonomy jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    );
+    create table if not exists experiments(
+      id text primary key, tenant_id text references tenants(id) on delete cascade, product_id text references products(id) on delete set null,
+      parent_job_id text references jobs(id) on delete set null, hypothesis text not null, changed_variable text not null,
+      target_metric text, baseline jsonb not null default '{}'::jsonb, status text not null default 'PLANNED',
+      result jsonb not null default '{}'::jsonb, learning jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+    );
+    create table if not exists provider_invocations(
+      id text primary key, tenant_id text references tenants(id) on delete cascade, job_id text references jobs(id) on delete set null,
+      provider text not null, capability text not null, mode text not null default 'MANUAL', prompt_hash text,
+      estimated_cost_usd numeric not null default 0, actual_cost_usd numeric not null default 0,
+      authorized_usd numeric not null default 0, status text not null default 'PLANNED', provenance jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+    );
+    create table if not exists policy_checks(
+      id text primary key, tenant_id text references tenants(id) on delete cascade, product_id text references products(id) on delete set null,
+      country text not null, channel text not null, category text not null, decision jsonb not null default '{}'::jsonb,
+      source_url text, checked_at timestamptz not null default now(), expires_at timestamptz, created_at timestamptz not null default now()
     );
   `);
 }
@@ -132,14 +158,24 @@ function stockRecovery({stock=0,cost=0,price=0,deadline}){
 
 async function rows(query, params=[]){ return (await pool.query(query,params)).rows; }
 
-app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.11.0',db,time:now(),costMode:'ZERO_CASH_GUARD'}); });
+app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.12.0',db,time:now(),costMode:'ZERO_CASH_GUARD'}); });
 
 app.get('/api/bootstrap', async (req,res)=>{
   if(!pool) return res.json(mem);
-  const [tenants,products,jobs,feedback,prospects,stockPlans,economics] = await Promise.all([
-    rows('select * from tenants order by created_at'),rows('select * from products order by created_at'),rows('select * from jobs order by created_at desc limit 200'),rows('select * from feedback order by created_at desc limit 200'),rows('select * from prospects order by created_at desc limit 200'),rows('select * from stock_plans order by created_at desc limit 200'),rows('select * from economics order by created_at desc limit 200')
+  const [tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks] = await Promise.all([
+    rows('select * from tenants order by created_at'),
+    rows('select * from products order by created_at'),
+    rows('select * from jobs order by created_at desc limit 200'),
+    rows('select * from feedback order by created_at desc limit 200'),
+    rows('select * from prospects order by created_at desc limit 200'),
+    rows('select * from stock_plans order by created_at desc limit 200'),
+    rows('select * from economics order by created_at desc limit 200'),
+    rows('select * from evidence_events order by created_at desc limit 500'),
+    rows('select * from experiments order by created_at desc limit 500'),
+    rows('select * from provider_invocations order by created_at desc limit 500'),
+    rows('select * from policy_checks order by created_at desc limit 500')
   ]);
-  res.json({tenants,products,jobs,feedback,prospects,stockPlans,economics});
+  res.json({tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks});
 });
 
 app.post('/api/tenants', async (req,res)=>{
@@ -258,6 +294,194 @@ app.post('/api/economics', async (req,res)=>{
   if(!pool){mem.economics.unshift({...e,...calc});saveLocal();return res.json({...e,...calc})}
   const out=(await pool.query('insert into economics(id,tenant_id,prospect_id,job_id,quote_usd,cash_received_usd,provider_cost_usd,infra_cost_usd,payment_fees_usd,owner_hours,owner_hour_value_usd,notes) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *',[e.id,e.tenant_id,e.prospect_id,e.job_id,e.quote_usd,e.cash_received_usd,e.provider_cost_usd,e.infra_cost_usd,e.payment_fees_usd,e.owner_hours,e.owner_hour_value_usd,e.notes])).rows[0];
   res.json({...out,...calc});
+});
+
+
+app.post('/api/evidence', async (req,res)=>{
+  const e={
+    id:id(),tenant_id:req.body.tenant_id||null,product_id:req.body.product_id||null,prospect_id:req.body.prospect_id||null,
+    evidence_type:req.body.evidence_type||'market_signal',source_url:req.body.source_url||'',source_name:req.body.source_name||'',
+    confidence:Number(req.body.confidence??50),observed_at:req.body.observed_at||now(),payload:req.body.payload||{},
+    taxonomy:buildCreativeTaxonomy(req.body.taxonomy||req.body.payload||{}),created_at:now()
+  };
+  if(!e.tenant_id&&!e.prospect_id) return res.status(400).json({error:'tenant_id or prospect_id required'});
+  if(!pool){mem.evidence.unshift(e);saveLocal();return res.json(e)}
+  const out=(await pool.query('insert into evidence_events(id,tenant_id,product_id,prospect_id,evidence_type,source_url,source_name,confidence,observed_at,payload,taxonomy) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *',[e.id,e.tenant_id,e.product_id,e.prospect_id,e.evidence_type,e.source_url,e.source_name,e.confidence,e.observed_at,e.payload,e.taxonomy])).rows[0];
+  res.json(out);
+});
+
+app.get('/api/evidence', async (req,res)=>{
+  const tenant=req.query.tenant_id||null, product=req.query.product_id||null, prospect=req.query.prospect_id||null;
+  if(!pool){
+    return res.json(mem.evidence.filter(x=>(!tenant||x.tenant_id===tenant)&&(!product||x.product_id===product)&&(!prospect||x.prospect_id===prospect)));
+  }
+  const where=[],vals=[]; let n=1;
+  if(tenant){where.push('tenant_id=
+  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,evidence:mem.evidence.length,experiments:mem.experiments.length,providerInvocations:mem.providerInvocations.length,policyChecks:mem.policyChecks.length,db:'local-json'});
+  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics,(select count(*) from evidence_events)::int evidence,(select count(*) from experiments)::int experiments,(select count(*) from provider_invocations)::int provider_invocations,(select count(*) from policy_checks)::int policy_checks");
+  res.json({...q.rows[0],db:'postgres'});
+});
+
+
+app.get('/api/capabilities', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','capability-registry.json');
+    const data=JSON.parse(fs.readFileSync(p,'utf8'));
+    res.json(data);
+  }catch(e){
+    res.status(500).json({error:'capability registry unavailable'});
+  }
+});
+
+app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+loadLocal();
+initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
++n++);vals.push(tenant)}
+  if(product){where.push('product_id=
+  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,db:'local-json'});
+  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics");
+  res.json({...q.rows[0],db:'postgres'});
+});
+
+
+app.get('/api/capabilities', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','capability-registry.json');
+    const data=JSON.parse(fs.readFileSync(p,'utf8'));
+    res.json(data);
+  }catch(e){
+    res.status(500).json({error:'capability registry unavailable'});
+  }
+});
+
+app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+loadLocal();
+initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
++n++);vals.push(product)}
+  if(prospect){where.push('prospect_id=
+  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,db:'local-json'});
+  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics");
+  res.json({...q.rows[0],db:'postgres'});
+});
+
+
+app.get('/api/capabilities', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','capability-registry.json');
+    const data=JSON.parse(fs.readFileSync(p,'utf8'));
+    res.json(data);
+  }catch(e){
+    res.status(500).json({error:'capability registry unavailable'});
+  }
+});
+
+app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+loadLocal();
+initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
++n++);vals.push(prospect)}
+  res.json(await rows('select * from evidence_events'+(where.length?' where '+where.join(' and '):'')+' order by created_at desc limit 500',vals));
+});
+
+app.post('/api/policy/check', async (req,res)=>{
+  const base=policyGate(req.body);
+  const decision=policyEnvelope({
+    decision:base,source_url:req.body.source_url||'',checked_at:req.body.checked_at||now(),expires_at:req.body.expires_at||null,
+    country:req.body.country||'US',channel:req.body.channel||'unknown',category:req.body.category||'general'
+  });
+  const p={id:id(),tenant_id:req.body.tenant_id||null,product_id:req.body.product_id||null,country:decision.country,channel:decision.channel,category:decision.category,decision,source_url:decision.source_url,checked_at:decision.checked_at,expires_at:decision.expires_at,created_at:now()};
+  if(!pool){mem.policyChecks.unshift(p);saveLocal();return res.json(p)}
+  const out=(await pool.query('insert into policy_checks(id,tenant_id,product_id,country,channel,category,decision,source_url,checked_at,expires_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *',[p.id,p.tenant_id,p.product_id,p.country,p.channel,p.category,p.decision,p.source_url||null,p.checked_at,p.expires_at])).rows[0];
+  res.json(out);
+});
+
+app.post('/api/next-best-test', (req,res)=>{
+  const options=Array.isArray(req.body.options)?req.body.options:[req.body];
+  const ranked=options.map((o,i)=>({id:o.id||('option-'+(i+1)),...o,decision:scoreNextBestTest(o)}))
+    .sort((a,b)=>b.decision.score-a.decision.score);
+  res.json({recommended:ranked[0]||null,ranked});
+});
+
+app.post('/api/experiments', async (req,res)=>{
+  const x={id:id(),tenant_id:req.body.tenant_id||null,product_id:req.body.product_id||null,parent_job_id:req.body.parent_job_id||null,
+    hypothesis:req.body.hypothesis||'',changed_variable:req.body.changed_variable||'hook',target_metric:req.body.target_metric||'CPA',
+    baseline:req.body.baseline||{},status:'PLANNED',result:{},learning:{},created_at:now(),updated_at:now()};
+  if(!x.hypothesis) return res.status(400).json({error:'hypothesis required'});
+  if(!pool){mem.experiments.unshift(x);saveLocal();return res.json(x)}
+  const out=(await pool.query('insert into experiments(id,tenant_id,product_id,parent_job_id,hypothesis,changed_variable,target_metric,baseline,status,result,learning) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *',[x.id,x.tenant_id,x.product_id,x.parent_job_id,x.hypothesis,x.changed_variable,x.target_metric,x.baseline,x.status,x.result,x.learning])).rows[0];
+  res.json(out);
+});
+
+app.post('/api/experiments/:id/result', async (req,res)=>{
+  const result=req.body.result||req.body.metrics||{};
+  const outcome=String(req.body.outcome||'NEUTRAL').toUpperCase();
+  const changed=req.body.changed_variable||'unknown';
+  const learning=deriveLearning({outcome,changed_variable:changed,metrics:result,notes:req.body.notes||''});
+  if(!pool){
+    const x=mem.experiments.find(e=>e.id===req.params.id);if(!x)return res.status(404).json({error:'experiment not found'});
+    x.status='COMPLETED';x.result=result;x.learning=learning;x.updated_at=now();saveLocal();return res.json(x);
+  }
+  const out=(await pool.query("update experiments set status='COMPLETED',result=$2,learning=$3,updated_at=now() where id=$1 returning *",[req.params.id,result,learning])).rows[0];
+  return out?res.json(out):res.status(404).json({error:'experiment not found'});
+});
+
+app.post('/api/provider/route', (req,res)=>{
+  const defaults=[
+    {id:'local-manual',enabled:true,capabilities:['GENERATE_ASSET','COMPOSE_VIDEO','WRITE_BRIEF'],estimated_cost_usd:0,quality_score:65,reliability_score:95,mode:'LOCAL_FREE'},
+    {id:'external-human',enabled:true,capabilities:['GENERATE_ASSET','COMPOSE_VIDEO'],estimated_cost_usd:Number(req.body.human_cost_usd||999),quality_score:90,reliability_score:85,mode:'HUMAN'},
+    {id:'paid-ai-provider',enabled:Boolean(req.body.paid_provider_enabled),capabilities:['GENERATE_ASSET','GENERATE_PREMIUM_VIDEO'],estimated_cost_usd:Number(req.body.paid_provider_estimated_cost_usd||999),quality_score:88,reliability_score:80,mode:'PAID_API'}
+  ];
+  res.json(selectProvider({capability:req.body.capability||'GENERATE_ASSET',authorized_usd:Number(req.body.authorized_usd||0),providers:req.body.providers||defaults}));
+});
+
+app.post('/api/provider-invocations', async (req,res)=>{
+  const prompt=String(req.body.prompt||'');
+  const v={id:id(),tenant_id:req.body.tenant_id||null,job_id:req.body.job_id||null,provider:req.body.provider||'manual',
+    capability:req.body.capability||'GENERATE_ASSET',mode:req.body.mode||'MANUAL',prompt_hash:prompt?crypto.createHash('sha256').update(prompt).digest('hex'):null,
+    estimated_cost_usd:Number(req.body.estimated_cost_usd||0),actual_cost_usd:Number(req.body.actual_cost_usd||0),authorized_usd:Number(req.body.authorized_usd||0),
+    status:req.body.status||'PLANNED',provenance:req.body.provenance||{},created_at:now(),updated_at:now()};
+  if(v.estimated_cost_usd>v.authorized_usd) return res.status(409).json({error:'COST_GUARD_BLOCKED',estimated_cost_usd:v.estimated_cost_usd,authorized_usd:v.authorized_usd});
+  if(!pool){mem.providerInvocations.unshift(v);saveLocal();return res.json(v)}
+  const out=(await pool.query('insert into provider_invocations(id,tenant_id,job_id,provider,capability,mode,prompt_hash,estimated_cost_usd,actual_cost_usd,authorized_usd,status,provenance) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *',[v.id,v.tenant_id,v.job_id,v.provider,v.capability,v.mode,v.prompt_hash,v.estimated_cost_usd,v.actual_cost_usd,v.authorized_usd,v.status,v.provenance])).rows[0];
+  res.json(out);
+});
+
+app.post('/api/readiness', (req,res)=>{
+  res.json(commercialReadiness(req.body||{}));
+});
+
+app.get('/api/tenant/:tenantId/summary', async (req,res)=>{
+  const t=req.params.tenantId;
+  if(!pool){
+    return res.json({
+      tenant:mem.tenants.find(x=>x.id===t)||null,
+      products:mem.products.filter(x=>x.tenant_id===t),
+      jobs:mem.jobs.filter(x=>x.tenant_id===t),
+      evidence:mem.evidence.filter(x=>x.tenant_id===t),
+      experiments:mem.experiments.filter(x=>x.tenant_id===t),
+      economics:mem.economics.filter(x=>x.tenant_id===t)
+    });
+  }
+  const [tenant,products,jobs,evidence,experiments,economics]=await Promise.all([
+    rows('select * from tenants where id=$1',[t]),rows('select * from products where tenant_id=$1',[t]),rows('select * from jobs where tenant_id=$1 order by created_at desc',[t]),
+    rows('select * from evidence_events where tenant_id=$1 order by created_at desc',[t]),rows('select * from experiments where tenant_id=$1 order by created_at desc',[t]),rows('select * from economics where tenant_id=$1 order by created_at desc',[t])
+  ]);
+  res.json({tenant:tenant[0]||null,products,jobs,evidence,experiments,economics});
+});
+
+app.post('/api/seed/universal-demo', async (req,res)=>{
+  const tenant={id:'northstar-demo',name:'Northstar Home',country:'US',locale:'en-US',currency:'USD'};
+  const products=[
+    {id:'northstar-lamp',name:'Portable Ambient Lamp',category:'home',price:79,cost:24,stock:220,objective:'sales'},
+    {id:'northstar-organizer',name:'Desk Cable Organizer',category:'home',price:29,cost:7,stock:640,objective:'sales'}
+  ];
+  if(!pool){
+    if(!mem.tenants.some(x=>x.id===tenant.id))mem.tenants.push({...tenant,created_at:now()});
+    for(const x of products)if(!mem.products.some(p=>p.id===x.id))mem.products.push({...x,tenant_id:tenant.id,metadata:{caseZero:false},created_at:now()});
+    saveLocal();return res.json({ok:true,tenant,products});
+  }
+  await pool.query('insert into tenants(id,name,country,locale,currency) values($1,$2,$3,$4,$5) on conflict(id) do nothing',[tenant.id,tenant.name,tenant.country,tenant.locale,tenant.currency]);
+  for(const x of products)await pool.query('insert into products(id,tenant_id,name,category,price,cost,stock,objective,metadata) values($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict(id) do update set price=excluded.price,cost=excluded.cost,stock=excluded.stock,objective=excluded.objective',[x.id,tenant.id,x.name,x.category,x.price,x.cost,x.stock,x.objective,{caseZero:false}]);
+  res.json({ok:true,tenant,products});
 });
 
 app.get('/api/owner', async (req,res)=>{
