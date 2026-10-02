@@ -27,6 +27,8 @@ try{
   if(!ok) throw new Error('server did not boot\n'+logs);
 
   const health=await req('/api/health');
+  const caps=await req('/api/capabilities');
+  if(!Array.isArray(caps.capabilities)||!caps.capabilities.some(x=>x.id==='signal_to_brief')) throw new Error('capability registry missing');
   if(!['local-json','postgres'].includes(health.db)) throw new Error('unexpected db '+health.db);
 
   await req('/api/seed/beco13',{method:'POST',body:'{}'});
