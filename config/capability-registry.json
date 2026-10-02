@@ -1,0 +1,129 @@
+{
+  "version": "2026-10-02",
+  "strategy": "provider-neutral creative revenue orchestration",
+  "core_loop": [
+    "evidence",
+    "commercial_context",
+    "hypothesis",
+    "next_best_test",
+    "production_router",
+    "qa_policy_rights",
+    "launch",
+    "performance_funnel_outcome",
+    "learning",
+    "winner_genealogy"
+  ],
+  "capabilities": [
+    {
+      "id": "signal_ingestion",
+      "priority": "P0",
+      "status": "DESIGNED",
+      "sources": [
+        "ad_accounts",
+        "shopify",
+        "amazon",
+        "tiktok_shop",
+        "reviews",
+        "competitor_ads",
+        "landing_pages",
+        "organic_trends",
+        "brand_claims",
+        "inventory_economics"
+      ]
+    },
+    {
+      "id": "creative_taxonomy",
+      "priority": "P0",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "experiment_ledger",
+      "priority": "P0",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "policy_matrix",
+      "priority": "P0",
+      "status": "PARTIAL"
+    },
+    {
+      "id": "unit_economics",
+      "priority": "P0",
+      "status": "PARTIAL"
+    },
+    {
+      "id": "provider_router",
+      "priority": "P0",
+      "status": "PARTIAL"
+    },
+    {
+      "id": "signal_to_brief",
+      "priority": "P1",
+      "status": "PARTIAL"
+    },
+    {
+      "id": "funnel_sync",
+      "priority": "P1",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "winner_genealogy",
+      "priority": "P1",
+      "status": "PARTIAL"
+    },
+    {
+      "id": "fatigue_engine",
+      "priority": "P1",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "brand_claims_kb",
+      "priority": "P1",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "profit_test_prioritizer",
+      "priority": "P1",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "creator_ops",
+      "priority": "P2",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "marketplace_brain",
+      "priority": "P2",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "agency_white_label",
+      "priority": "P2",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "localization",
+      "priority": "P2",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "rights_provenance",
+      "priority": "P2",
+      "status": "DESIGNED"
+    },
+    {
+      "id": "multi_region_enterprise",
+      "priority": "P4",
+      "status": "FUTURE"
+    }
+  ],
+  "competitive_rule": "Do not rebuild commodity generation/analytics if a provider connector can supply it cheaper and faster.",
+  "hard_rules": [
+    "Beco 13 is Case Zero only",
+    "No unsupported performance claims",
+    "No universal legal/compliance promise",
+    "Unknown policy state escalates to REVIEW",
+    "No recurring paid provider without owner approval",
+    "Every paid test must record unit economics"
+  ]
+}
