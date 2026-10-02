@@ -316,69 +316,9 @@ app.get('/api/evidence', async (req,res)=>{
     return res.json(mem.evidence.filter(x=>(!tenant||x.tenant_id===tenant)&&(!product||x.product_id===product)&&(!prospect||x.prospect_id===prospect)));
   }
   const where=[],vals=[]; let n=1;
-  if(tenant){where.push('tenant_id=
-  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,evidence:mem.evidence.length,experiments:mem.experiments.length,providerInvocations:mem.providerInvocations.length,policyChecks:mem.policyChecks.length,db:'local-json'});
-  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics,(select count(*) from evidence_events)::int evidence,(select count(*) from experiments)::int experiments,(select count(*) from provider_invocations)::int provider_invocations,(select count(*) from policy_checks)::int policy_checks");
-  res.json({...q.rows[0],db:'postgres'});
-});
-
-
-app.get('/api/capabilities', (req,res)=>{
-  try{
-    const p=path.join(__dirname,'config','capability-registry.json');
-    const data=JSON.parse(fs.readFileSync(p,'utf8'));
-    res.json(data);
-  }catch(e){
-    res.status(500).json({error:'capability registry unavailable'});
-  }
-});
-
-app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-loadLocal();
-initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
-+n++);vals.push(tenant)}
-  if(product){where.push('product_id=
-  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,db:'local-json'});
-  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics");
-  res.json({...q.rows[0],db:'postgres'});
-});
-
-
-app.get('/api/capabilities', (req,res)=>{
-  try{
-    const p=path.join(__dirname,'config','capability-registry.json');
-    const data=JSON.parse(fs.readFileSync(p,'utf8'));
-    res.json(data);
-  }catch(e){
-    res.status(500).json({error:'capability registry unavailable'});
-  }
-});
-
-app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-loadLocal();
-initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
-+n++);vals.push(product)}
-  if(prospect){where.push('prospect_id=
-  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,db:'local-json'});
-  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics");
-  res.json({...q.rows[0],db:'postgres'});
-});
-
-
-app.get('/api/capabilities', (req,res)=>{
-  try{
-    const p=path.join(__dirname,'config','capability-registry.json');
-    const data=JSON.parse(fs.readFileSync(p,'utf8'));
-    res.json(data);
-  }catch(e){
-    res.status(500).json({error:'capability registry unavailable'});
-  }
-});
-
-app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-loadLocal();
-initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
-+n++);vals.push(prospect)}
+  if(tenant){where.push('tenant_id=$'+n++);vals.push(tenant)}
+  if(product){where.push('product_id=$'+n++);vals.push(product)}
+  if(prospect){where.push('prospect_id=$'+n++);vals.push(prospect)}
   res.json(await rows('select * from evidence_events'+(where.length?' where '+where.join(' and '):'')+' order by created_at desc limit 500',vals));
 });
 
@@ -458,14 +398,22 @@ app.get('/api/tenant/:tenantId/summary', async (req,res)=>{
       jobs:mem.jobs.filter(x=>x.tenant_id===t),
       evidence:mem.evidence.filter(x=>x.tenant_id===t),
       experiments:mem.experiments.filter(x=>x.tenant_id===t),
-      economics:mem.economics.filter(x=>x.tenant_id===t)
+      economics:mem.economics.filter(x=>x.tenant_id===t),
+      providerInvocations:mem.providerInvocations.filter(x=>x.tenant_id===t),
+      policyChecks:mem.policyChecks.filter(x=>x.tenant_id===t)
     });
   }
-  const [tenant,products,jobs,evidence,experiments,economics]=await Promise.all([
-    rows('select * from tenants where id=$1',[t]),rows('select * from products where tenant_id=$1',[t]),rows('select * from jobs where tenant_id=$1 order by created_at desc',[t]),
-    rows('select * from evidence_events where tenant_id=$1 order by created_at desc',[t]),rows('select * from experiments where tenant_id=$1 order by created_at desc',[t]),rows('select * from economics where tenant_id=$1 order by created_at desc',[t])
+  const [tenant,products,jobs,evidence,experiments,economics,providerInvocations,policyChecks]=await Promise.all([
+    rows('select * from tenants where id=$1',[t]),
+    rows('select * from products where tenant_id=$1',[t]),
+    rows('select * from jobs where tenant_id=$1 order by created_at desc',[t]),
+    rows('select * from evidence_events where tenant_id=$1 order by created_at desc',[t]),
+    rows('select * from experiments where tenant_id=$1 order by created_at desc',[t]),
+    rows('select * from economics where tenant_id=$1 order by created_at desc',[t]),
+    rows('select * from provider_invocations where tenant_id=$1 order by created_at desc',[t]),
+    rows('select * from policy_checks where tenant_id=$1 order by created_at desc',[t])
   ]);
-  res.json({tenant:tenant[0]||null,products,jobs,evidence,experiments,economics});
+  res.json({tenant:tenant[0]||null,products,jobs,evidence,experiments,economics,providerInvocations,policyChecks});
 });
 
 app.post('/api/seed/universal-demo', async (req,res)=>{
@@ -485,11 +433,16 @@ app.post('/api/seed/universal-demo', async (req,res)=>{
 });
 
 app.get('/api/owner', async (req,res)=>{
-  if(!pool)return res.json({tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,stockPlans:mem.stockPlans.length,economics:mem.economics.length,db:'local-json'});
-  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics");
+  if(!pool)return res.json({
+    tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,
+    winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,
+    stockPlans:mem.stockPlans.length,economics:mem.economics.length,evidence:mem.evidence.length,
+    experiments:mem.experiments.length,providerInvocations:mem.providerInvocations.length,
+    policyChecks:mem.policyChecks.length,db:'local-json'
+  });
+  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics,(select count(*) from evidence_events)::int evidence,(select count(*) from experiments)::int experiments,(select count(*) from provider_invocations)::int provider_invocations,(select count(*) from policy_checks)::int policy_checks");
   res.json({...q.rows[0],db:'postgres'});
 });
-
 
 app.get('/api/capabilities', (req,res)=>{
   try{
