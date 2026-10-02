@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-02",
+  "status": "READY_TO_ATTACK_AFTER_OWNER_APPROVAL",
+  "priorities": [
+    {
+      "id": "A1",
+      "source": "Upwork",
+      "title": "Creative Strategist for Meta Ads (Facebook & Instagram)",
+      "budget": "US$500 fixed",
+      "type": "ongoing",
+      "fit": "very_high",
+      "portfolio_barrier": "low-medium; spec work explicitly accepted",
+      "action": "apply_with_CONCEPT_pack"
+    },
+    {
+      "id": "A2",
+      "source": "Upwork",
+      "title": "Creative Strategist Needed for Skincare Brand & Paid Social Ads",
+      "budget": "US$65 fixed",
+      "type": "contract-to-hire",
+      "fit": "high",
+      "portfolio_barrier": "medium",
+      "action": "paid_proof_strict_scope"
+    },
+    {
+      "id": "A3",
+      "source": "OnlineJobs",
+      "title": "Creative strategist",
+      "budget": "500 / 10hr-week shown",
+      "type": "ongoing",
+      "fit": "very_high",
+      "portfolio_barrier": "mini-test requested",
+      "action": "submit_premium_wellness_mini_test"
+    },
+    {
+      "id": "B1",
+      "source": "Upwork",
+      "title": "Performance Creative Strategist (Meta) | DTC Wellness Supplements",
+      "budget": "US$1,000 fixed",
+      "type": "10-hour then long-term",
+      "fit": "near_exact",
+      "portfolio_barrier": "high due 50+ proposals",
+      "action": "outside_in_spec_then_apply"
+    },
+    {
+      "id": "B2",
+      "source": "Upwork",
+      "title": "Performance Creative Strategist for Ecommerce Brands (Meta Ads)",
+      "budget": "US$800-1,000/month + profit %",
+      "type": "long-term",
+      "fit": "near_exact",
+      "portfolio_barrier": "asks quantified winners",
+      "action": "after_first_case"
+    },
+    {
+      "id": "P1",
+      "source": "Reddit",
+      "title": "AI UGC Video Editor for ecommerce ads",
+      "budget": "paid test; ongoing",
+      "type": "production",
+      "fit": "future_high",
+      "portfolio_barrier": "finished AI UGC portfolio required",
+      "action": "after_portfolio_grade_video"
+    },
+    {
+      "id": "P2",
+      "source": "Reddit",
+      "title": "Top-Tier AI UGC Video Creator",
+      "budget": "US$100-200/video",
+      "type": "paid test + monthly ongoing",
+      "fit": "future_high",
+      "portfolio_barrier": "realistic finished AI UGC required",
+      "action": "after_portfolio_grade_video"
+    }
+  ]
+}
