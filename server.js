@@ -266,6 +266,17 @@ app.get('/api/owner', async (req,res)=>{
   res.json({...q.rows[0],db:'postgres'});
 });
 
+
+app.get('/api/capabilities', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','capability-registry.json');
+    const data=JSON.parse(fs.readFileSync(p,'utf8'));
+    res.json(data);
+  }catch(e){
+    res.status(500).json({error:'capability registry unavailable'});
+  }
+});
+
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 loadLocal();
 initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
