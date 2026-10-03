@@ -9,6 +9,7 @@ import { scoreProspect, buildOutreachBrief } from './lib/sales-core.mjs';
 import { capacityAssessment, quoteGuard } from './lib/capacity-core.mjs';
 import { classifyReply, buildReplyPlan } from './lib/reply-core.mjs';
 import { summarizeLearning, applyLearningToConcept, learningScenePrefix } from './lib/learning-core.mjs';
+import { createLocalAssetStore, distinctAssetCount } from './lib/storage-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -22,6 +23,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSL === 'disable' ? false : { rejectUnauthorized: false } }) : null;
 const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || path.join(__dirname, 'data', 'local-db.json');
+const ASSET_ROOT = process.env.ASSET_ROOT || path.join(__dirname,'data','assets');
+const assetStore = createLocalAssetStore({rootDir:ASSET_ROOT,publicPrefix:'/assets'});
+app.use('/assets', express.static(ASSET_ROOT));
 const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], evidence: [], experiments: [], providerInvocations: [], policyChecks: [], state: null });
 let mem = emptyMem();
 
@@ -224,14 +228,50 @@ app.post('/api/jobs', async (req,res)=>{
   res.json((await pool.query('insert into jobs(id,tenant_id,product_id,status,country,channel,business_model,vertical,objective,direction,policy,cost_guard,scenes) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *',[j.id,j.tenant_id,j.product_id,j.status,j.country,j.channel,j.business_model,j.vertical,j.objective,j.direction,j.policy,j.cost_guard,j.scenes])).rows[0]);
 });
 
+app.post('/api/assets/import', async (req,res)=>{
+  const tenantId=req.body.tenant_id||'unknown';
+  const jobId=req.body.job_id||'unassigned';
+  const incoming=Array.isArray(req.body.assets)?req.body.assets:[];
+  if(!incoming.length) return res.status(400).json({error:'assets required'});
+  const refs=[];
+  for(const a of incoming){
+    if(!a?.dataUrl) continue;
+    refs.push(await assetStore.put({dataUrl:a.dataUrl,name:a.name||'',tenantId,jobId}));
+  }
+  res.json({provider:'LOCAL_FS',count:refs.length,assets:refs});
+});
+
 app.post('/api/jobs/:id/assets', async (req,res)=>{
-  const assets=Array.isArray(req.body.assets)?req.body.assets:[];
-  if(assets.length<3) return res.status(400).json({error:'At least 3 fresh scene assets required'});
-  const unique=new Set(assets.map(a=>String(a.dataUrl||a.url||a.name||''))).size;
+  const incoming=Array.isArray(req.body.assets)?req.body.assets:[];
+  if(incoming.length<3) return res.status(400).json({error:'At least 3 fresh scene assets required'});
+
+  let job=null;
+  if(!pool) job=mem.jobs.find(x=>x.id===req.params.id)||null;
+  else job=(await pool.query('select * from jobs where id=$1',[req.params.id])).rows[0]||null;
+  if(!job) return res.status(404).json({error:'job not found'});
+
+  const refs=[];
+  for(const a of incoming){
+    if(a?.dataUrl){
+      refs.push(await assetStore.put({dataUrl:a.dataUrl,name:a.name||'',tenantId:job.tenant_id,jobId:job.id}));
+    }else if(a?.url){
+      refs.push({...a,provider:a.provider||'EXTERNAL_REF'});
+    }
+  }
+  const unique=distinctAssetCount(refs);
   if(unique<3) return res.status(400).json({error:'Similarity Guard: at least 3 distinct scene assets required'});
-  const patch={assets,assetCount:assets.length,importedAt:now(),qa:{freshAssets:true,distinctAssets:true,productFidelity:'MANUAL_REVIEW_REQUIRED',ctaPresent:true}};
-  if(!pool){const j=mem.jobs.find(x=>x.id===req.params.id);if(!j)return res.status(404).json({error:'job not found'});j.direction={...j.direction,...patch};j.status='READY_FOR_RENDER';j.updated_at=now();saveLocal();return res.json(j)}
-  const out=(await pool.query("update jobs set direction=direction || $2::jsonb,status='READY_FOR_RENDER',updated_at=now() where id=$1 returning *",[req.params.id,JSON.stringify(patch)])).rows[0]; return out?res.json(out):res.status(404).json({error:'job not found'});
+  const patch={
+    assets:refs,
+    assetCount:refs.length,
+    assetStorage:{provider:'LOCAL_FS',inlinePayloads:false},
+    importedAt:now(),
+    qa:{freshAssets:true,distinctAssets:true,productFidelity:'MANUAL_REVIEW_REQUIRED',ctaPresent:true}
+  };
+  if(!pool){
+    job.direction={...job.direction,...patch};job.status='READY_FOR_RENDER';job.updated_at=now();saveLocal();return res.json(job);
+  }
+  const out=(await pool.query("update jobs set direction=direction || $2::jsonb,status='READY_FOR_RENDER',updated_at=now() where id=$1 returning *",[req.params.id,JSON.stringify(patch)])).rows[0];
+  return res.json(out);
 });
 
 app.post('/api/jobs/:id/feedback', async (req,res)=>{
