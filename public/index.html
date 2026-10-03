@@ -24,6 +24,21 @@
   <div class="card"><h3>Provider Truth</h3><div id="providerTruth" class="list">Carregando providers…</div></div>
 </div>
 <div class="grid" style="margin-top:14px">
+  <div class="card"><h3>Paid Pilot Engine</h3><div class="muted">QUOTE → PAYMENT TRUTH → CAPACITY GATE → ACTIVE → DELIVERED</div>
+    <div class="row"><div><label>Tenant</label><select id="pilotTenant"></select></div><div><label>Preço USD</label><input id="pilotPrice" type="number" value="500"></div></div>
+    <div class="row"><div><label>Provider USD</label><input id="pilotProvider" type="number" value="0"></div><div><label>Infra + taxas USD</label><input id="pilotInfraFees" type="number" value="20"></div></div>
+    <div class="row"><div><label>Horas humanas</label><input id="pilotHours" type="number" value="4"></div><div><label>Valor/hora USD</label><input id="pilotHourValue" type="number" value="30"></div></div>
+    <button class="btn primary" id="createPilot">Criar quote/piloto</button>
+    <div class="row" style="margin-top:10px"><div><label>Engagement ID</label><input id="pilotId" placeholder="preenchido após criar"></div><div><label>Valor recebido USD</label><input id="pilotPaid" type="number" value="0"></div></div>
+    <div class="row"><div><label>Verificação</label><select id="pilotPaySource"><option value="MANUAL">MANUAL (não verifica)</option><option value="BANK_CONFIRMED">BANK_CONFIRMED</option><option value="PROCESSOR_API">PROCESSOR_API</option><option value="STRIPE_WEBHOOK">STRIPE_WEBHOOK</option></select></div><div><label>Referência externa</label><input id="pilotPayRef" placeholder="processor/bank reference"></div></div>
+    <button class="btn secondary" id="recordPilotPayment">Registrar pagamento</button>
+    <button class="btn primary" id="activatePilot">Ativar piloto</button>
+    <button class="btn secondary" id="deliverPilot">Marcar entregue</button>
+    <div id="pilotOutput" class="code" style="margin-top:10px">Nenhum piloto criado.</div>
+  </div>
+  <div class="card"><h3>Engagements</h3><div class="muted">Pagamento só vira receita operacional quando há evidência externa verificável.</div><div id="engagementList" class="list" style="margin-top:10px">Carregando…</div><h3 style="margin-top:16px">Audit Ledger</h3><div id="auditList" class="list">Carregando…</div></div>
+</div>
+<div class="grid" style="margin-top:14px">
   <div class="card"><h3>Capacity Proof</h3><div class="row"><div><label>Pessoas pedidas</label><input id="capPeople" type="number" value="5"></div><div><label>Horas/pessoa/semana</label><input id="capHours" type="number" value="30"></div></div><div class="row"><div><label>Unidades medidas/hora</label><input id="capUnitsHour" type="number" step="0.1" value="0"></div><div><label>Horas de operador/semana</label><input id="capOperatorHours" type="number" value="20"></div></div><div class="row"><div><label>Share automatizado (0–1)</label><input id="capAutomation" type="number" step="0.05" value="0.7"></div><div><label>QA pass rate (0–1)</label><input id="capQuality" type="number" step="0.05" value="0.9"></div></div><label>Unidades por assento humano/semana</label><input id="capUnitsSeat" type="number" value="10"><button class="btn primary" id="runCapacity">Medir capacidade equivalente</button><div id="capacityOutput" class="code" style="margin-top:10px">Sem throughput medido, a máquina não declara substituição de assentos.</div></div>
   <div class="card"><h3>Prova comercial</h3><div class="gate"><span>Resposta positiva</span><b class="review">NÃO É RECEITA</b></div><div class="gate"><span>Proposta aceita verbalmente</span><b class="review">NÃO É RECEITA</b></div><div class="gate"><span>Pagamento recebido</span><b class="allow">CASH RECEIVED</b></div><div class="gate"><span>Lucro</span><b class="review">SÓ APÓS CUSTO MEDIDO</b></div><div class="status">Lei do diretor: funciona = teste; vende = dinheiro; lucro = custo medido; permitido = regra/fonte.</div></div>
 </div>
