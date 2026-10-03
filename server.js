@@ -14,6 +14,7 @@ import { parseAuthKeys, authenticateHeaders, canAccessTenant, hasRole, visibleTe
 import { productionPlan } from './lib/production-core.mjs';
 import { pilotQuote, paymentTruth, canActivatePilot } from './lib/engagement-core.mjs';
 import { verifyStripeWebhook, stripePaymentFromEvent } from './lib/stripe-core.mjs';
+import { evaluatePerformance } from './lib/performance-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -59,7 +60,7 @@ function ownerOr403(req,res){
   return false;
 }
 
-const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], evidence: [], experiments: [], providerInvocations: [], policyChecks: [], engagements: [], auditEvents: [], state: null });
+const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], evidence: [], experiments: [], providerInvocations: [], policyChecks: [], engagements: [], auditEvents: [], performanceEvents: [], state: null });
 let mem = emptyMem();
 
 function loadLocal(){
@@ -147,6 +148,12 @@ async function initDb(){
       id text primary key, tenant_id text references tenants(id) on delete set null, actor_subject text, actor_role text,
       event_type text not null, entity_type text not null, entity_id text, payload jsonb not null default '{}'::jsonb,
       created_at timestamptz not null default now()
+    );
+    create table if not exists performance_events(
+      id text primary key, tenant_id text not null references tenants(id) on delete cascade, product_id text references products(id) on delete set null,
+      job_id text references jobs(id) on delete set null, experiment_id text references experiments(id) on delete set null,
+      channel text not null, post_url text, primary_metric text not null, metrics jsonb not null default '{}'::jsonb,
+      evaluation jsonb not null default '{}'::jsonb, observed_at timestamptz not null default now(), created_at timestamptz not null default now()
     );
   `);
 }
@@ -306,10 +313,11 @@ app.get('/api/bootstrap', async (req,res)=>{
       providerInvocations:mem.providerInvocations.filter(x=>allow.has(x.tenant_id)),
       policyChecks:mem.policyChecks.filter(x=>allow.has(x.tenant_id)),
       engagements:mem.engagements.filter(x=>!x.tenant_id||allow.has(x.tenant_id)),
-      auditEvents:mem.auditEvents.filter(x=>!x.tenant_id||allow.has(x.tenant_id))
+      auditEvents:mem.auditEvents.filter(x=>!x.tenant_id||allow.has(x.tenant_id)),
+      performanceEvents:mem.performanceEvents.filter(x=>allow.has(x.tenant_id))
     });
   }
-  const [tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks,engagements,auditEvents] = await Promise.all([
+  const [tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks,engagements,auditEvents,performanceEvents] = await Promise.all([
     rows('select * from tenants order by created_at'),
     rows('select * from products order by created_at'),
     rows('select * from jobs order by created_at desc limit 200'),
@@ -322,9 +330,10 @@ app.get('/api/bootstrap', async (req,res)=>{
     rows('select * from provider_invocations order by created_at desc limit 500'),
     rows('select * from policy_checks order by created_at desc limit 500'),
     rows('select * from engagements order by created_at desc limit 500'),
-    rows('select * from audit_events order by created_at desc limit 1000')
+    rows('select * from audit_events order by created_at desc limit 1000'),
+    rows('select * from performance_events order by observed_at desc limit 1000')
   ]);
-  res.json({tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks,engagements,auditEvents});
+  res.json({tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks,engagements,auditEvents,performanceEvents});
 });
 
 app.post('/api/tenants', async (req,res)=>{
@@ -774,6 +783,69 @@ app.get('/api/audit', async (req,res)=>{
   res.json(await rows('select * from audit_events where tenant_id=any($1::text[]) order by created_at desc limit 1000',[ids]));
 });
 
+
+app.post('/api/performance-events', async (req,res)=>{
+  const tenantId=req.body.tenant_id||null;
+  if(!tenantId) return res.status(400).json({error:'tenant_id required'});
+  if(!tenantAccessOr403(req,res,tenantId)) return;
+
+  const evaluation=evaluatePerformance({
+    metrics:req.body.metrics||{},
+    primary_metric:req.body.primary_metric||'whatsapp_leads',
+    baseline:req.body.baseline??null,
+    target:req.body.target??null,
+    min_sample:req.body.min_sample??100
+  });
+
+  const p={
+    id:id(),tenant_id:tenantId,product_id:req.body.product_id||null,job_id:req.body.job_id||null,experiment_id:req.body.experiment_id||null,
+    channel:req.body.channel||'unknown',post_url:req.body.post_url||'',primary_metric:evaluation.primary_metric,
+    metrics:req.body.metrics||{},evaluation,observed_at:req.body.observed_at||now(),created_at:now()
+  };
+
+  if(!pool){
+    mem.performanceEvents.unshift(p);
+    if(p.experiment_id && ['WINNER','LOSER','NEUTRAL'].includes(evaluation.outcome)){
+      const x=mem.experiments.find(e=>e.id===p.experiment_id);
+      if(x){
+        x.status='COMPLETED';
+        x.result={...evaluation.raw,...evaluation.derived,primary_metric:evaluation.primary_metric,primary_value:evaluation.primary_value,performance_event_id:p.id};
+        x.learning=deriveLearning({outcome:evaluation.outcome,changed_variable:x.changed_variable||'unknown',metrics:x.result,notes:evaluation.reason});
+        x.updated_at=now();
+      }
+    }
+    saveLocal();
+  }else{
+    await pool.query('insert into performance_events(id,tenant_id,product_id,job_id,experiment_id,channel,post_url,primary_metric,metrics,evaluation,observed_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[p.id,p.tenant_id,p.product_id,p.job_id,p.experiment_id,p.channel,p.post_url,p.primary_metric,p.metrics,p.evaluation,p.observed_at]);
+    if(p.experiment_id && ['WINNER','LOSER','NEUTRAL'].includes(evaluation.outcome)){
+      const exp=(await pool.query('select * from experiments where id=$1',[p.experiment_id])).rows[0];
+      if(exp){
+        const result={...evaluation.raw,...evaluation.derived,primary_metric:evaluation.primary_metric,primary_value:evaluation.primary_value,performance_event_id:p.id};
+        const learning=deriveLearning({outcome:evaluation.outcome,changed_variable:exp.changed_variable||'unknown',metrics:result,notes:evaluation.reason});
+        await pool.query("update experiments set status='COMPLETED',result=$2,learning=$3,updated_at=now() where id=$1",[exp.id,result,learning]);
+      }
+    }
+  }
+
+  await recordAudit(req,{tenant_id:tenantId,event_type:'PERFORMANCE_RECORDED',entity_type:'performance_event',entity_id:p.id,payload:{channel:p.channel,primary_metric:p.primary_metric,outcome:evaluation.outcome,job_id:p.job_id,experiment_id:p.experiment_id}});
+  res.json(p);
+});
+
+app.get('/api/performance-events', async (req,res)=>{
+  const tenant=req.query.tenant_id||null;
+  if(tenant && !tenantAccessOr403(req,res,tenant)) return;
+  if(!pool){
+    const visible=visibleTenantIds(req.actor);
+    if(visible.includes('*')) return res.json(mem.performanceEvents);
+    const allow=new Set(visible);
+    return res.json(mem.performanceEvents.filter(x=>allow.has(x.tenant_id)));
+  }
+  if(tenant) return res.json(await rows('select * from performance_events where tenant_id=$1 order by observed_at desc limit 1000',[tenant]));
+  if(req.actor?.role==='OWNER') return res.json(await rows('select * from performance_events order by observed_at desc limit 1000'));
+  const ids=visibleTenantIds(req.actor); if(!ids.length) return res.json([]);
+  return res.json(await rows('select * from performance_events where tenant_id=any($1::text[]) order by observed_at desc limit 1000',[ids]));
+});
+
 app.get('/api/owner', async (req,res)=>{
   if(!ownerOr403(req,res)) return;
   if(!pool)return res.json({
@@ -781,9 +853,9 @@ app.get('/api/owner', async (req,res)=>{
     winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,
     stockPlans:mem.stockPlans.length,economics:mem.economics.length,evidence:mem.evidence.length,
     experiments:mem.experiments.length,providerInvocations:mem.providerInvocations.length,
-    policyChecks:mem.policyChecks.length,engagements:mem.engagements.length,auditEvents:mem.auditEvents.length,db:'local-json'
+    policyChecks:mem.policyChecks.length,engagements:mem.engagements.length,auditEvents:mem.auditEvents.length,performanceEvents:mem.performanceEvents.length,db:'local-json'
   });
-  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics,(select count(*) from evidence_events)::int evidence,(select count(*) from experiments)::int experiments,(select count(*) from provider_invocations)::int provider_invocations,(select count(*) from policy_checks)::int policy_checks,(select count(*) from engagements)::int engagements,(select count(*) from audit_events)::int audit_events");
+  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics,(select count(*) from evidence_events)::int evidence,(select count(*) from experiments)::int experiments,(select count(*) from provider_invocations)::int provider_invocations,(select count(*) from policy_checks)::int policy_checks,(select count(*) from engagements)::int engagements,(select count(*) from audit_events)::int audit_events,(select count(*) from performance_events)::int performance_events");
   res.json({...q.rows[0],db:'postgres'});
 });
 
