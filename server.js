@@ -15,6 +15,7 @@ import { productionPlan } from './lib/production-core.mjs';
 import { pilotQuote, paymentTruth, canActivatePilot } from './lib/engagement-core.mjs';
 import { verifyStripeWebhook, stripePaymentFromEvent } from './lib/stripe-core.mjs';
 import { evaluatePerformance } from './lib/performance-core.mjs';
+import { deploymentReadiness } from './lib/deploy-readiness.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -22,15 +23,17 @@ const port = Number(process.env.PORT || 3000);
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+let dbReady=Promise.resolve();
 
+app.use(async (req,res,next)=>{try{await dbReady;next()}catch(e){console.error('DB init failed',e);res.status(503).json({error:'DB_NOT_READY'})}});
 app.post('/api/payments/stripe/webhook', express.raw({type:'application/json',limit:'2mb'}), stripeWebhookHandler);
 app.use(express.json({ limit: '18mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSL === 'disable' ? false : { rejectUnauthorized: false } }) : null;
-const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || path.join(__dirname, 'data', 'local-db.json');
-const ASSET_ROOT = process.env.ASSET_ROOT || path.join(__dirname,'data','assets');
+const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || (process.env.VERCEL ? '/tmp/creative-ops-local-db.json' : path.join(__dirname, 'data', 'local-db.json'));
+const ASSET_ROOT = process.env.ASSET_ROOT || (process.env.VERCEL ? '/tmp/creative-ops-assets' : path.join(__dirname,'data','assets'));
 const assetStore = createLocalAssetStore({rootDir:ASSET_ROOT,publicPrefix:'/assets'});
 const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED||'false').toLowerCase()==='true';
 const AUTH_KEYS = parseAuthKeys(process.env.AUTH_KEYS_JSON||'[]');
@@ -292,7 +295,7 @@ async function learningExperimentsFor(tenantId, productId=null){
 }
 
 
-app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.13.0',db,time:now(),costMode:'ZERO_CASH_GUARD',authRequired:AUTH_REQUIRED}); });
+app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.14.0',db,time:now(),costMode:'ZERO_CASH_GUARD',authRequired:AUTH_REQUIRED,runtime:process.env.VERCEL?'VERCEL':'LOCAL'}); });
 
 app.get('/api/bootstrap', async (req,res)=>{
   if(!pool){
@@ -912,6 +915,18 @@ app.get('/api/owner', async (req,res)=>{
 });
 
 
+
+app.get('/api/deploy-readiness', (req,res)=>{
+  if(!ownerOr403(req,res)) return;
+  try{
+    const p=path.join(__dirname,'config','provider-registry.json');
+    const registry=JSON.parse(fs.readFileSync(p,'utf8'));
+    res.json(deploymentReadiness({env:process.env,providerRegistry:registry,runtime:process.env.VERCEL?'vercel':'local'}));
+  }catch(e){
+    res.status(500).json({error:'deploy readiness unavailable'});
+  }
+});
+
 app.get('/api/admission-policy', (req,res)=>{
   try{
     const p=path.join(__dirname,'config','admission-policy.json');
@@ -967,4 +982,8 @@ app.get('/api/capabilities', (req,res)=>{
 
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 loadLocal();
-initDb().then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
+dbReady=initDb();
+export default app;
+if(!process.env.VERCEL){
+  dbReady.then(()=>app.listen(port,()=>console.log(`Creative Ops listening on ${port}`))).catch(err=>{console.error('DB init failed',err);process.exit(1)});
+}
