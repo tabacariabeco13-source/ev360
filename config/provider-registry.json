@@ -1,0 +1,66 @@
+{
+  "version": "2026-10-03",
+  "rule": "No provider may execute paid work unless credentials exist and estimated cost is within explicit authorization.",
+  "providers": [
+    {
+      "id": "local-manual",
+      "label": "Atlas Manual / Local",
+      "status": "ACTIVE",
+      "mode": "LOCAL_FREE",
+      "capabilities": [
+        "WRITE_BRIEF",
+        "IMPORT_ASSET",
+        "COMPOSE_VIDEO",
+        "GENERATE_ASSET"
+      ],
+      "estimated_cost_usd": 0,
+      "quality_score": 65,
+      "reliability_score": 95,
+      "requires_credentials": false,
+      "requires_spend_approval": false
+    },
+    {
+      "id": "runway-connector",
+      "label": "Runway connected workspace",
+      "status": "CONNECTOR_ONLY_NOT_BACKEND_API",
+      "mode": "EXTERNAL_CONNECTOR",
+      "capabilities": [
+        "GENERATE_ASSET"
+      ],
+      "estimated_cost_usd": null,
+      "quality_score": 88,
+      "reliability_score": 80,
+      "requires_credentials": true,
+      "requires_spend_approval": true
+    },
+    {
+      "id": "premium-video-api",
+      "label": "Premium Video Provider",
+      "status": "NOT_CONNECTED",
+      "mode": "PAID_API",
+      "capabilities": [
+        "GENERATE_PREMIUM_VIDEO"
+      ],
+      "estimated_cost_usd": null,
+      "quality_score": 90,
+      "reliability_score": 80,
+      "requires_credentials": true,
+      "requires_spend_approval": true
+    },
+    {
+      "id": "human-editor",
+      "label": "Human Editor / Creator",
+      "status": "ON_DEMAND",
+      "mode": "HUMAN",
+      "capabilities": [
+        "COMPOSE_VIDEO",
+        "GENERATE_ASSET"
+      ],
+      "estimated_cost_usd": null,
+      "quality_score": 92,
+      "reliability_score": 85,
+      "requires_credentials": false,
+      "requires_spend_approval": true
+    }
+  ]
+}
