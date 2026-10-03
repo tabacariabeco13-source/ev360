@@ -27,12 +27,16 @@ try{
   if(!html.includes('Commercial Command Center')) throw new Error('commercial UI missing');
   if(!html.includes('AdNimbly')) throw new Error('provisional brand missing');
   if(!html.includes('Production Planner')) throw new Error('production planner UI missing');
+  if(!html.includes('Paid Pilot Engine')) throw new Error('paid pilot UI missing');
+  if(!html.includes('Audit Ledger')) throw new Error('audit ledger UI missing');
   if(!html.includes('/commercial.js')) throw new Error('commercial client script missing');
 
   const js=await (await fetch(base+'/commercial.js')).text();
   if(!js.includes('/api/sales/reply-triage')) throw new Error('reply triage UI wiring missing');
   if(!js.includes('/api/pricing/guard')) throw new Error('quote guard UI wiring missing');
   if(!js.includes('/api/production/plan')) throw new Error('production planner UI wiring missing');
+  if(!js.includes('/api/engagements')) throw new Error('engagement UI wiring missing');
+  if(!js.includes('/api/audit')) throw new Error('audit UI wiring missing');
 
   const admission=await json('/api/admission-policy');
   if(admission.simultaneous_full_pilots_cap!==2) throw new Error('admission policy cap drifted');
