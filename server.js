@@ -241,16 +241,16 @@ app.post('/api/prospects/spec', async (req,res)=>{
 app.post('/api/seed/beco13', async (req,res)=>{
   const tenant={id:'beco13',name:'Beco 13',country:'BR',locale:'pt-BR',currency:'BRL'};
   const products=[
-    {id:'miniatura',name:'Miniatura 1:36',category:'general',price:150,cost:75,stock:0,objective:'creative_benchmark'},
+    {id:'miniatura',name:'Miniatura 1:36',category:'general',price:0,cost:0,stock:0,objective:'creative_benchmark',metadata:{caseZero:true,economicDataVerified:false,economicDataNote:'Preço/custo desta escala não confirmados'}},
     {id:'oculos',name:'Óculos',category:'fashion',price:90,cost:0,stock:0,objective:'sales'},
     {id:'fone',name:'Fone AirDots',category:'tech',price:35,cost:0,stock:0,objective:'sales'},
     {id:'bone',name:'Boné',category:'fashion',price:35,cost:0,stock:0,objective:'sales'},
     {id:'doce',name:'Doce',category:'food',price:2,cost:0,stock:0,objective:'impulse_sales'},
     {id:'plastic-cone',name:'Plastic Cone',category:'smoking_accessory',price:8,cost:2.5,stock:4000,objective:'stock_recovery'}
   ];
-  if(!pool){if(!mem.tenants.some(x=>x.id==='beco13'))mem.tenants.push({...tenant,created_at:now()});for(const x of products)if(!mem.products.some(p=>p.id===x.id))mem.products.push({...x,tenant_id:'beco13',metadata:{caseZero:true},created_at:now()});saveLocal();return res.json({ok:true,tenant,products})}
+  if(!pool){if(!mem.tenants.some(x=>x.id==='beco13'))mem.tenants.push({...tenant,created_at:now()});for(const x of products){const existing=mem.products.find(p=>p.id===x.id);const metadata={caseZero:true,...(x.metadata||{})};if(!existing)mem.products.push({...x,tenant_id:'beco13',metadata,created_at:now()});else if(x.id==='miniatura' && existing.metadata?.economicDataVerified!==true){existing.price=0;existing.cost=0;existing.metadata=metadata;}}saveLocal();return res.json({ok:true,tenant,products})}
   await pool.query('insert into tenants(id,name,country,locale,currency) values($1,$2,$3,$4,$5) on conflict(id) do nothing',[tenant.id,tenant.name,tenant.country,tenant.locale,tenant.currency]);
-  for(const x of products)await pool.query("insert into products(id,tenant_id,name,category,price,cost,stock,objective,metadata) values($1,'beco13',$2,$3,$4,$5,$6,$7,$8) on conflict(id) do update set price=excluded.price,cost=excluded.cost,stock=excluded.stock,objective=excluded.objective",[x.id,x.name,x.category,x.price,x.cost,x.stock,x.objective,{caseZero:true}]);
+  for(const x of products)await pool.query("insert into products(id,tenant_id,name,category,price,cost,stock,objective,metadata) values($1,'beco13',$2,$3,$4,$5,$6,$7,$8) on conflict(id) do update set price=excluded.price,cost=excluded.cost,stock=excluded.stock,objective=excluded.objective",[x.id,x.name,x.category,x.price,x.cost,x.stock,x.objective,{caseZero:true,...(x.metadata||{})}]);
   res.json({ok:true,tenant,products});
 });
 
