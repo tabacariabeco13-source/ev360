@@ -8,6 +8,7 @@ import { buildCreativeTaxonomy, scoreNextBestTest, selectProvider, deriveLearnin
 import { scoreProspect, buildOutreachBrief } from './lib/sales-core.mjs';
 import { capacityAssessment, quoteGuard } from './lib/capacity-core.mjs';
 import { classifyReply, buildReplyPlan } from './lib/reply-core.mjs';
+import { summarizeLearning, applyLearningToConcept, learningScenePrefix } from './lib/learning-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -137,8 +138,8 @@ function director(input){
   return { vertical, playbook:p, concepts:base };
 }
 
-function makeScenes({productName, concept, vertical}){
-  const common = `PRODUCT FIDELITY LOCK. Preserve the real ${productName} as the mandatory SKU reference. Do not invent physical features, marks or claims. Vertical 9:16 native-feed composition.`;
+function makeScenes({productName, concept, vertical, learning={}}){
+  const common = `${learningScenePrefix(learning)}PRODUCT FIDELITY LOCK. Preserve the real ${productName} as the mandatory SKU reference. Do not invent physical features, marks or claims. Vertical 9:16 native-feed composition.`;
   return [
     {order:1, brief:'Hook visual imediato com o produto aparecendo cedo.', prompt:`${common} Scene 1 for ${vertical}/${concept.angle}: high-impact opening, product visible immediately, strong visual tension, no promotional text baked in.`},
     {order:2, brief:'Demonstração do mecanismo, uso ou benefício.', prompt:`${common} Scene 2: demonstrate ${concept.angle} through environment, action or composition; preserve product identity; no fake evidence.`},
@@ -160,6 +161,18 @@ function stockRecovery({stock=0,cost=0,price=0,deadline}){
 }
 
 async function rows(query, params=[]){ return (await pool.query(query,params)).rows; }
+
+async function learningExperimentsFor(tenantId, productId=null){
+  if(!tenantId) return [];
+  if(!pool){
+    return mem.experiments.filter(x=>x.tenant_id===tenantId && (!productId || !x.product_id || x.product_id===productId));
+  }
+  if(productId){
+    return rows("select * from experiments where tenant_id=$1 and (product_id=$2 or product_id is null) order by updated_at desc limit 100",[tenantId,productId]);
+  }
+  return rows("select * from experiments where tenant_id=$1 order by updated_at desc limit 100",[tenantId]);
+}
+
 
 app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.12.0',db,time:now(),costMode:'ZERO_CASH_GUARD'}); });
 
@@ -201,8 +214,12 @@ app.post('/api/direct', (req,res)=>{
 
 app.post('/api/jobs', async (req,res)=>{
   const policy=policyGate(req.body); if(policy.level==='BLOCKED') return res.status(409).json({error:'POLICY_BLOCKED',policy});
-  const d=director(req.body); const chosen=d.concepts[Number(req.body.conceptIndex||0)%d.concepts.length]; const scenes=makeScenes({productName:req.body.productName||'product',concept:chosen,vertical:d.vertical});
-  const j={id:id(),tenant_id:req.body.tenant_id,product_id:req.body.product_id||null,status:'AWAITING_ASSETS',country:req.body.country||'US',channel:req.body.channel||'Meta / Instagram',business_model:req.body.business_model||'DTC',vertical:req.body.vertical||'general',objective:req.body.objective||'sales',direction:{...chosen,vertical:d.vertical},policy,cost_guard:{authorizedUsd:0,paidProvider:false,mode:'ATLAS_MANUAL_ZERO_CASH'},scenes,created_at:now(),updated_at:now()};
+  const d=director(req.body);
+  const learning=summarizeLearning(await learningExperimentsFor(req.body.tenant_id,req.body.product_id||null));
+  const baseChosen=d.concepts[Number(req.body.conceptIndex||0)%d.concepts.length];
+  const chosen=applyLearningToConcept(baseChosen,learning);
+  const scenes=makeScenes({productName:req.body.productName||'product',concept:chosen,vertical:d.vertical,learning});
+  const j={id:id(),tenant_id:req.body.tenant_id,product_id:req.body.product_id||null,status:'AWAITING_ASSETS',country:req.body.country||'US',channel:req.body.channel||'Meta / Instagram',business_model:req.body.business_model||'DTC',vertical:req.body.vertical||'general',objective:req.body.objective||'sales',direction:{...chosen,vertical:d.vertical,learning_context:learning},policy,cost_guard:{authorizedUsd:0,paidProvider:false,mode:'ATLAS_MANUAL_ZERO_CASH'},scenes,created_at:now(),updated_at:now()};
   if(!pool){mem.jobs.unshift(j);saveLocal();return res.json(j)}
   res.json((await pool.query('insert into jobs(id,tenant_id,product_id,status,country,channel,business_model,vertical,objective,direction,policy,cost_guard,scenes) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *',[j.id,j.tenant_id,j.product_id,j.status,j.country,j.channel,j.business_model,j.vertical,j.objective,j.direction,j.policy,j.cost_guard,j.scenes])).rows[0]);
 });
@@ -471,6 +488,17 @@ app.post('/api/sales/reply-triage', (req,res)=>{
   res.json({
     classification:classifyReply(reply_text),
     plan:buildReplyPlan({reply_text,buyer,capacity})
+  });
+});
+
+
+app.get('/api/tenant/:tenantId/brain', async (req,res)=>{
+  const experiments=await learningExperimentsFor(req.params.tenantId,req.query.product_id||null);
+  res.json({
+    tenant_id:req.params.tenantId,
+    product_id:req.query.product_id||null,
+    completed_experiments:experiments.filter(x=>String(x.status).toUpperCase()==='COMPLETED').length,
+    recommendation:summarizeLearning(experiments)
   });
 });
 
