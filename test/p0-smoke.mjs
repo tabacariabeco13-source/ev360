@@ -27,7 +27,7 @@ try{
   if(!live) throw new Error('boot failed '+logs);
 
   const h=await req('/api/health');
-  if(h.version!=='0.12.0') throw new Error('wrong version '+h.version);
+  if(h.version!=='0.13.0') throw new Error('wrong version '+h.version);
 
   const caps=await req('/api/capabilities');
   if(!caps.capabilities.some(x=>x.id==='signal_to_brief')) throw new Error('capability registry missing');
