@@ -12,7 +12,7 @@ async function loadCommercial(){
   const status=cq('#commercialStatus');
   try{
     status.textContent='Carregando operação comercial…';
-    const [board,bootstrap,owner,admission,brand,providers,engagements,audit]=await Promise.all([
+    const [board,bootstrap,owner,admission,brand,providers,engagements,audit,performance]=await Promise.all([
       cApi('/api/sales/leads'),
       cApi('/api/bootstrap'),
       cApi('/api/owner'),
@@ -20,15 +20,29 @@ async function loadCommercial(){
       cApi('/api/brand'),
       cApi('/api/providers'),
       cApi('/api/engagements'),
-      cApi('/api/audit')
+      cApi('/api/audit'),
+      cApi('/api/performance-events')
     ]);
 
     if(cq('#brandName')) cq('#brandName').textContent=brand.brand||'AdNimbly';
     if(cq('#productName')) cq('#productName').textContent=(brand.product||'Creative Ops Autopilot')+' • '+(brand.category||'Creative Revenue Operating System')+' • v0.13';
     cq('#providerTruth').innerHTML=(providers.providers||[]).map(p=>'<div class="item"><b>'+p.label+'</b><small>'+p.status+' • '+p.mode+' • '+(p.estimated_cost_usd===null?'preço desconhecido':'US$ '+p.estimated_cost_usd)+'</small></div>').join('');
     if(cq('#pilotTenant')) cq('#pilotTenant').innerHTML=(bootstrap.tenants||[]).map(t=>'<option value="'+t.id+'">'+t.name+' • '+t.country+'</option>').join('');
+    if(cq('#perfTenant')){
+      cq('#perfTenant').innerHTML=(bootstrap.tenants||[]).map(t=>'<option value="'+t.id+'">'+t.name+' • '+t.country+'</option>').join('');
+      const syncPerf=()=>{
+        const tid=cq('#perfTenant').value;
+        const jobs=(bootstrap.jobs||[]).filter(j=>j.tenant_id===tid);
+        const exps=(bootstrap.experiments||[]).filter(x=>x.tenant_id===tid);
+        cq('#perfJob').innerHTML='<option value="">sem job</option>'+jobs.map(j=>'<option value="'+j.id+'">'+(j.vertical||'job')+' • '+j.status+' • '+j.id.slice(0,8)+'</option>').join('');
+        cq('#perfExperiment').innerHTML='<option value="">sem experimento</option>'+exps.map(x=>'<option value="'+x.id+'">'+(x.changed_variable||'variable')+' • '+x.status+' • '+x.id.slice(0,8)+'</option>').join('');
+      };
+      cq('#perfTenant').onchange=syncPerf;
+      syncPerf();
+    }
     if(cq('#engagementList')) cq('#engagementList').innerHTML=(engagements||[]).slice(0,12).map(e=>'<div class="item"><b>'+e.status+' • '+money(e.quote?.price_usd)+'</b><small>'+(e.tenant_id||'sem tenant')+' • payment '+(e.payment?.state||'UNPAID')+' • '+e.id+'</small></div>').join('')||'<div class="muted">Nenhum engagement.</div>';
     if(cq('#auditList')) cq('#auditList').innerHTML=(audit||[]).slice(0,10).map(a=>'<div class="item"><b>'+a.event_type+'</b><small>'+a.entity_type+' '+(a.entity_id||'')+' • '+new Date(a.created_at).toLocaleString()+'</small></div>').join('')||'<div class="muted">Sem eventos ainda.</div>';
+    if(cq('#performanceList')) cq('#performanceList').innerHTML=(performance||[]).slice(0,12).map(p=>'<div class="item"><b>'+p.channel+' • '+(p.evaluation?.outcome||'UNKNOWN')+'</b><small>'+p.primary_metric+' = '+(p.evaluation?.primary_value??'-')+' • sample '+(p.evaluation?.sample??0)+' • '+new Date(p.observed_at).toLocaleString()+'</small></div>').join('')||'<div class="muted">Sem performance real registrada.</div>';
 
     const contacted=(bootstrap.prospects||[]).filter(p=>p.stage==='CONTACTED').length;
     const replied=(bootstrap.prospects||[]).filter(p=>p.stage==='REPLIED').length;
@@ -65,7 +79,8 @@ async function loadCommercial(){
       providerInvocations:owner.providerInvocations||owner.provider_invocations,
       policyChecks:owner.policyChecks||owner.policy_checks,
       engagements:owner.engagements,
-      auditEvents:owner.auditEvents||owner.audit_events
+      auditEvents:owner.auditEvents||owner.audit_events,
+      performanceEvents:owner.performanceEvents||owner.performance_events
     },null,2);
 
     status.textContent='Comercial sincronizado. Sem receita inventada: resposta ≠ pagamento.';
@@ -190,4 +205,35 @@ cq('#deliverPilot')?.addEventListener('click',async()=>{
     cq('#pilotOutput').textContent=JSON.stringify(r,null,2);
     await loadCommercial();
   }catch(e){cq('#pilotOutput').textContent=e.message}
+});
+
+
+cq('#recordPerformance')?.addEventListener('click',async()=>{
+  try{
+    const r=await cApi('/api/performance-events',{method:'POST',body:JSON.stringify({
+      tenant_id:cq('#perfTenant').value,
+      job_id:cq('#perfJob').value||null,
+      experiment_id:cq('#perfExperiment').value||null,
+      channel:cq('#perfChannel').value||'unknown',
+      post_url:cq('#perfPostUrl').value||'',
+      primary_metric:cq('#perfPrimary').value,
+      target:Number(cq('#perfTarget').value||0),
+      min_sample:Number(cq('#perfMinSample').value||100),
+      metrics:{
+        views:Number(cq('#perfViews').value||0),
+        likes:Number(cq('#perfLikes').value||0),
+        comments:Number(cq('#perfComments').value||0),
+        shares:Number(cq('#perfShares').value||0),
+        saves:Number(cq('#perfSaves').value||0),
+        profile_visits:Number(cq('#perfProfile').value||0),
+        link_clicks:Number(cq('#perfClicks').value||0),
+        whatsapp_leads:Number(cq('#perfWhatsapp').value||0),
+        orders:Number(cq('#perfOrders').value||0),
+        revenue:Number(cq('#perfRevenue').value||0),
+        spend:Number(cq('#perfSpend').value||0)
+      }
+    })});
+    cq('#performanceOutput').textContent=JSON.stringify(r,null,2);
+    await loadCommercial();
+  }catch(e){cq('#performanceOutput').textContent=e.message}
 });
