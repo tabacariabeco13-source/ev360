@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { buildCreativeTaxonomy, scoreNextBestTest, selectProvider, deriveLearning, commercialReadiness, policyEnvelope } from './lib/decision-core.mjs';
 import { scoreProspect, buildOutreachBrief } from './lib/sales-core.mjs';
 import { capacityAssessment, quoteGuard } from './lib/capacity-core.mjs';
+import { classifyReply, buildReplyPlan } from './lib/reply-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -460,6 +461,17 @@ app.post('/api/capacity/assess', (req,res)=>{
 
 app.post('/api/pricing/guard', (req,res)=>{
   res.json(quoteGuard(req.body||{}));
+});
+
+
+app.post('/api/sales/reply-triage', (req,res)=>{
+  const reply_text=String(req.body.reply_text||'');
+  const buyer=req.body.buyer||{};
+  const capacity=req.body.capacity||{full_slots_available:0};
+  res.json({
+    classification:classifyReply(reply_text),
+    plan:buildReplyPlan({reply_text,buyer,capacity})
+  });
 });
 
 app.get('/api/owner', async (req,res)=>{
