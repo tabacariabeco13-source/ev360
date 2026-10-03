@@ -10,6 +10,7 @@ import { capacityAssessment, quoteGuard } from './lib/capacity-core.mjs';
 import { classifyReply, buildReplyPlan } from './lib/reply-core.mjs';
 import { summarizeLearning, applyLearningToConcept, learningScenePrefix } from './lib/learning-core.mjs';
 import { createLocalAssetStore, distinctAssetCount } from './lib/storage-core.mjs';
+import { parseAuthKeys, authenticateHeaders, canAccessTenant, hasRole, visibleTenantIds } from './lib/auth-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -25,7 +26,34 @@ const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: proc
 const LOCAL_DB_PATH = process.env.LOCAL_DB_PATH || path.join(__dirname, 'data', 'local-db.json');
 const ASSET_ROOT = process.env.ASSET_ROOT || path.join(__dirname,'data','assets');
 const assetStore = createLocalAssetStore({rootDir:ASSET_ROOT,publicPrefix:'/assets'});
+const AUTH_REQUIRED = String(process.env.AUTH_REQUIRED||'false').toLowerCase()==='true';
+const AUTH_KEYS = parseAuthKeys(process.env.AUTH_KEYS_JSON||'[]');
 app.use('/assets', express.static(ASSET_ROOT));
+app.use('/api',(req,res,next)=>{
+  if(req.path==='/health') return next();
+  if(!AUTH_REQUIRED){
+    req.actor={subject:'local-owner',role:'OWNER',tenant_ids:['*'],auth_mode:'DISABLED_LOCAL'};
+    return next();
+  }
+  const actor=authenticateHeaders(req.headers,AUTH_KEYS);
+  if(!actor) return res.status(401).json({error:'AUTH_REQUIRED'});
+  req.actor=actor;
+  const tenantId=req.body?.tenant_id||req.query?.tenant_id||null;
+  if(tenantId && !canAccessTenant(actor,tenantId)) return res.status(403).json({error:'TENANT_FORBIDDEN'});
+  next();
+});
+
+function tenantAccessOr403(req,res,tenantId){
+  if(canAccessTenant(req.actor,tenantId)) return true;
+  res.status(403).json({error:'TENANT_FORBIDDEN'});
+  return false;
+}
+function ownerOr403(req,res){
+  if(hasRole(req.actor,'OWNER')) return true;
+  res.status(403).json({error:'OWNER_ROLE_REQUIRED'});
+  return false;
+}
+
 const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], evidence: [], experiments: [], providerInvocations: [], policyChecks: [], state: null });
 let mem = emptyMem();
 
@@ -178,10 +206,28 @@ async function learningExperimentsFor(tenantId, productId=null){
 }
 
 
-app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.12.0',db,time:now(),costMode:'ZERO_CASH_GUARD'}); });
+app.get('/api/health', async (req,res)=>{ let db='local-json'; if(pool){ try{ await pool.query('select 1'); db='postgres'; } catch(e){ db='error'; } } res.json({ok:true,version:'0.13.0',db,time:now(),costMode:'ZERO_CASH_GUARD',authRequired:AUTH_REQUIRED}); });
 
 app.get('/api/bootstrap', async (req,res)=>{
-  if(!pool) return res.json(mem);
+  if(!pool){
+    const visible=visibleTenantIds(req.actor);
+    if(visible.includes('*')) return res.json(mem);
+    const allow=new Set(visible);
+    return res.json({
+      ...mem,
+      tenants:mem.tenants.filter(x=>allow.has(x.id)),
+      products:mem.products.filter(x=>allow.has(x.tenant_id)),
+      jobs:mem.jobs.filter(x=>allow.has(x.tenant_id)),
+      feedback:mem.feedback.filter(x=>allow.has(x.tenant_id)),
+      prospects:mem.prospects.filter(x=>!x.tenant_id||allow.has(x.tenant_id)),
+      stockPlans:mem.stockPlans.filter(x=>allow.has(x.tenant_id)),
+      economics:mem.economics.filter(x=>!x.tenant_id||allow.has(x.tenant_id)),
+      evidence:mem.evidence.filter(x=>allow.has(x.tenant_id)),
+      experiments:mem.experiments.filter(x=>allow.has(x.tenant_id)),
+      providerInvocations:mem.providerInvocations.filter(x=>allow.has(x.tenant_id)),
+      policyChecks:mem.policyChecks.filter(x=>allow.has(x.tenant_id))
+    });
+  }
   const [tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks] = await Promise.all([
     rows('select * from tenants order by created_at'),
     rows('select * from products order by created_at'),
@@ -296,6 +342,7 @@ app.post('/api/prospects/spec', async (req,res)=>{
 });
 
 app.post('/api/seed/beco13', async (req,res)=>{
+  if(!ownerOr403(req,res)) return;
   const tenant={id:'beco13',name:'Beco 13',country:'BR',locale:'pt-BR',currency:'BRL'};
   const products=[
     {id:'miniatura',name:'Miniatura 1:36',category:'general',price:0,cost:0,stock:0,objective:'creative_benchmark',metadata:{caseZero:true,economicDataVerified:false,economicDataNote:'Preço/custo desta escala não confirmados'}},
@@ -328,6 +375,7 @@ app.patch('/api/prospects/:id/stage', async (req,res)=>{
 });
 
 app.post('/api/seed/client-attack', async (req,res)=>{
+  if(!ownerOr403(req,res)) return;
   const leads=[
     {id:'lead-a1',company:'Upwork buyer — Meta Creative Strategist',country:'US',url:'https://www.upwork.com/freelance-jobs/apply/Creative-Strategist-for-Meta-Ads-Facebook-Instagram_~022104980694095225838/',observed_need:'Research → angles → hooks → scripts → briefs → QA → performance learning',product:'Creative Strategy',vertical:'general',channel:'Meta / Instagram',stage:'SPEC_READY',spec:{budget:'US$500 fixed',priority:'A1',barrier:'spec work accepted',next_action:'Owner approval then apply with CONCEPT pack'}},
     {id:'lead-a2',company:'Upwork buyer — Skincare Paid Social',country:'US',url:'https://www.upwork.com/freelance-jobs/apply/Creative-Strategist-Needed-for-Skincare-Brand-Paid-Social-Ads_~022105362420281732320/',observed_need:'Skincare angles/hooks/UGC brief with contract-to-hire potential',product:'Skincare',vertical:'beauty',channel:'Meta / Instagram',stage:'SPEC_READY',spec:{budget:'US$65 fixed',priority:'A2',barrier:'low ticket proof',next_action:'Strict-scope paid proof'}},
@@ -450,7 +498,7 @@ app.post('/api/readiness', (req,res)=>{
 });
 
 app.get('/api/tenant/:tenantId/summary', async (req,res)=>{
-  const t=req.params.tenantId;
+  const t=req.params.tenantId;if(!tenantAccessOr403(req,res,t)) return;
   if(!pool){
     return res.json({
       tenant:mem.tenants.find(x=>x.id===t)||null,
@@ -477,6 +525,7 @@ app.get('/api/tenant/:tenantId/summary', async (req,res)=>{
 });
 
 app.post('/api/seed/universal-demo', async (req,res)=>{
+  if(!ownerOr403(req,res)) return;
   const tenant={id:'northstar-demo',name:'Northstar Home',country:'US',locale:'en-US',currency:'USD'};
   const products=[
     {id:'northstar-lamp',name:'Portable Ambient Lamp',category:'home',price:79,cost:24,stock:220,objective:'sales'},
@@ -533,6 +582,7 @@ app.post('/api/sales/reply-triage', (req,res)=>{
 
 
 app.get('/api/tenant/:tenantId/brain', async (req,res)=>{
+  if(!tenantAccessOr403(req,res,req.params.tenantId)) return;
   const experiments=await learningExperimentsFor(req.params.tenantId,req.query.product_id||null);
   res.json({
     tenant_id:req.params.tenantId,
@@ -542,7 +592,10 @@ app.get('/api/tenant/:tenantId/brain', async (req,res)=>{
   });
 });
 
+app.get('/api/auth/me',(req,res)=>res.json({actor:req.actor||null,authRequired:AUTH_REQUIRED,visibleTenantIds:visibleTenantIds(req.actor)}));
+
 app.get('/api/owner', async (req,res)=>{
+  if(!ownerOr403(req,res)) return;
   if(!pool)return res.json({
     tenants:mem.tenants.length,products:mem.products.length,jobs:mem.jobs.length,
     winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,
