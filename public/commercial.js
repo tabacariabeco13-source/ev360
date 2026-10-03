@@ -12,13 +12,15 @@ async function loadCommercial(){
   const status=cq('#commercialStatus');
   try{
     status.textContent='Carregando operação comercial…';
-    const [board,bootstrap,owner,admission,brand,providers]=await Promise.all([
+    const [board,bootstrap,owner,admission,brand,providers,engagements,audit]=await Promise.all([
       cApi('/api/sales/leads'),
       cApi('/api/bootstrap'),
       cApi('/api/owner'),
       cApi('/api/admission-policy'),
       cApi('/api/brand'),
-      cApi('/api/providers')
+      cApi('/api/providers'),
+      cApi('/api/engagements'),
+      cApi('/api/audit')
     ]);
 
     if(cq('#brandName')) cq('#brandName').textContent=brand.brand||'AdNimbly';
@@ -127,4 +129,60 @@ cq('#runProductionPlan')?.addEventListener('click',async()=>{
     })});
     cq('#productionPlanOutput').textContent=JSON.stringify(r,null,2);
   }catch(e){cq('#productionPlanOutput').textContent=e.message}
+});
+
+
+cq('#createPilot')?.addEventListener('click',async()=>{
+  try{
+    const fees=Number(cq('#pilotInfraFees').value||0);
+    const r=await cApi('/api/engagements',{method:'POST',body:JSON.stringify({
+      tenant_id:cq('#pilotTenant').value,
+      delivery_mode:'FULL_PILOT',
+      deliverables:['buyer-specific diagnosis','3 concepts','9 hooks','3 briefs','test plan'],
+      price_usd:Number(cq('#pilotPrice').value||0),
+      provider_cost_usd:Number(cq('#pilotProvider').value||0),
+      infra_cost_usd:fees/2,
+      payment_fees_usd:fees/2,
+      human_hours:Number(cq('#pilotHours').value||0),
+      owner_hour_value_usd:Number(cq('#pilotHourValue').value||0),
+      minimum_margin:0.35
+    })});
+    cq('#pilotId').value=r.id;
+    cq('#pilotOutput').textContent=JSON.stringify(r,null,2);
+    await loadCommercial();
+  }catch(e){cq('#pilotOutput').textContent=e.message}
+});
+
+cq('#recordPilotPayment')?.addEventListener('click',async()=>{
+  try{
+    const id=cq('#pilotId').value.trim();
+    if(!id) throw new Error('Engagement ID obrigatório');
+    const r=await cApi('/api/engagements/'+id+'/payment',{method:'POST',body:JSON.stringify({
+      amount_received_usd:Number(cq('#pilotPaid').value||0),
+      verification_source:cq('#pilotPaySource').value,
+      provider_reference:cq('#pilotPayRef').value
+    })});
+    cq('#pilotOutput').textContent=JSON.stringify(r,null,2);
+    await loadCommercial();
+  }catch(e){cq('#pilotOutput').textContent=e.message}
+});
+
+cq('#activatePilot')?.addEventListener('click',async()=>{
+  try{
+    const id=cq('#pilotId').value.trim();
+    if(!id) throw new Error('Engagement ID obrigatório');
+    const r=await cApi('/api/engagements/'+id+'/activate',{method:'POST',body:'{}'});
+    cq('#pilotOutput').textContent=JSON.stringify(r,null,2);
+    await loadCommercial();
+  }catch(e){cq('#pilotOutput').textContent=e.message}
+});
+
+cq('#deliverPilot')?.addEventListener('click',async()=>{
+  try{
+    const id=cq('#pilotId').value.trim();
+    if(!id) throw new Error('Engagement ID obrigatório');
+    const r=await cApi('/api/engagements/'+id+'/deliver',{method:'POST',body:JSON.stringify({job_ids:[],result_summary:'Delivery recorded from commercial cockpit'})});
+    cq('#pilotOutput').textContent=JSON.stringify(r,null,2);
+    await loadCommercial();
+  }catch(e){cq('#pilotOutput').textContent=e.message}
 });
