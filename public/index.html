@@ -24,6 +24,23 @@
   <div class="card"><h3>Provider Truth</h3><div id="providerTruth" class="list">Carregando providers…</div></div>
 </div>
 <div class="grid" style="margin-top:14px">
+  <div class="card"><h3>Performance → Learning</h3><div class="muted">Cole o resultado real do TikTok/Meta/etc. A máquina só chama winner/loser com amostra + alvo/baseline explícitos.</div>
+    <div class="row"><div><label>Tenant</label><select id="perfTenant"></select></div><div><label>Job</label><select id="perfJob"></select></div></div>
+    <div class="row"><div><label>Experiment</label><select id="perfExperiment"></select></div><div><label>Canal</label><input id="perfChannel" value="TikTok Organic"></div></div>
+    <label>URL do post</label><input id="perfPostUrl" placeholder="https://www.tiktok.com/...">
+    <div class="row"><div><label>Métrica principal</label><select id="perfPrimary"><option value="whatsapp_leads">WhatsApp leads</option><option value="orders">Pedidos</option><option value="link_clicks">Cliques</option><option value="profile_visits">Visitas ao perfil</option><option value="revenue">Receita</option><option value="engagement_rate">Engagement rate</option><option value="avg_watch_pct">Avg watch %</option></select></div><div><label>Alvo</label><input id="perfTarget" type="number" step="0.01" value="1"></div></div>
+    <div class="row"><div><label>Amostra mínima</label><input id="perfMinSample" type="number" value="100"></div><div><label>Views</label><input id="perfViews" type="number" value="0"></div></div>
+    <div class="row"><div><label>Likes</label><input id="perfLikes" type="number" value="0"></div><div><label>Comentários</label><input id="perfComments" type="number" value="0"></div></div>
+    <div class="row"><div><label>Compart.</label><input id="perfShares" type="number" value="0"></div><div><label>Salvos</label><input id="perfSaves" type="number" value="0"></div></div>
+    <div class="row"><div><label>Visitas perfil</label><input id="perfProfile" type="number" value="0"></div><div><label>Cliques</label><input id="perfClicks" type="number" value="0"></div></div>
+    <div class="row"><div><label>WhatsApp leads</label><input id="perfWhatsapp" type="number" value="0"></div><div><label>Pedidos</label><input id="perfOrders" type="number" value="0"></div></div>
+    <div class="row"><div><label>Receita</label><input id="perfRevenue" type="number" step="0.01" value="0"></div><div><label>Spend</label><input id="perfSpend" type="number" step="0.01" value="0"></div></div>
+    <button class="btn primary" id="recordPerformance">Registrar resultado real</button>
+    <div id="performanceOutput" class="code" style="margin-top:10px">Aguardando métricas.</div>
+  </div>
+  <div class="card"><h3>Performance Ledger</h3><div class="muted">Resultado registrado vira evidência. Se houver sinal suficiente, fecha o experimento e altera o próximo job.</div><div id="performanceList" class="list" style="margin-top:10px">Carregando…</div></div>
+</div>
+<div class="grid" style="margin-top:14px">
   <div class="card"><h3>Paid Pilot Engine</h3><div class="muted">QUOTE → PAYMENT TRUTH → CAPACITY GATE → ACTIVE → DELIVERED</div>
     <div class="row"><div><label>Tenant</label><select id="pilotTenant"></select></div><div><label>Preço USD</label><input id="pilotPrice" type="number" value="500"></div></div>
     <div class="row"><div><label>Provider USD</label><input id="pilotProvider" type="number" value="0"></div><div><label>Infra + taxas USD</label><input id="pilotInfraFees" type="number" value="20"></div></div>
