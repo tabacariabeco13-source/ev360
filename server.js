@@ -12,6 +12,7 @@ import { summarizeLearning, applyLearningToConcept, learningScenePrefix } from '
 import { createLocalAssetStore, distinctAssetCount } from './lib/storage-core.mjs';
 import { parseAuthKeys, authenticateHeaders, canAccessTenant, hasRole, visibleTenantIds } from './lib/auth-core.mjs';
 import { productionPlan } from './lib/production-core.mjs';
+import { pilotQuote, paymentTruth, canActivatePilot } from './lib/engagement-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -55,7 +56,7 @@ function ownerOr403(req,res){
   return false;
 }
 
-const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], evidence: [], experiments: [], providerInvocations: [], policyChecks: [], state: null });
+const emptyMem = () => ({ tenants: [], products: [], jobs: [], feedback: [], prospects: [], stockPlans: [], economics: [], evidence: [], experiments: [], providerInvocations: [], policyChecks: [], engagements: [], auditEvents: [], state: null });
 let mem = emptyMem();
 
 function loadLocal(){
@@ -133,6 +134,17 @@ async function initDb(){
       country text not null, channel text not null, category text not null, decision jsonb not null default '{}'::jsonb,
       source_url text, checked_at timestamptz not null default now(), expires_at timestamptz, created_at timestamptz not null default now()
     );
+    create table if not exists engagements(
+      id text primary key, tenant_id text references tenants(id) on delete set null, prospect_id text references prospects(id) on delete set null,
+      status text not null default 'DRAFT_QUOTE', scope jsonb not null default '{}'::jsonb, quote jsonb not null default '{}'::jsonb,
+      payment jsonb not null default '{}'::jsonb, delivery jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+    );
+    create table if not exists audit_events(
+      id text primary key, tenant_id text references tenants(id) on delete set null, actor_subject text, actor_role text,
+      event_type text not null, entity_type text not null, entity_id text, payload jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    );
   `);
 }
 
@@ -195,6 +207,18 @@ function stockRecovery({stock=0,cost=0,price=0,deadline}){
 
 async function rows(query, params=[]){ return (await pool.query(query,params)).rows; }
 
+async function recordAudit(req,{tenant_id=null,event_type,entity_type,entity_id=null,payload={}}){
+  const a={id:id(),tenant_id,actor_subject:req.actor?.subject||'unknown',actor_role:req.actor?.role||'UNKNOWN',event_type,entity_type,entity_id,payload,created_at:now()};
+  if(!pool){mem.auditEvents.unshift(a);saveLocal();return a}
+  return (await pool.query('insert into audit_events(id,tenant_id,actor_subject,actor_role,event_type,entity_type,entity_id,payload) values($1,$2,$3,$4,$5,$6,$7,$8) returning *',[a.id,a.tenant_id,a.actor_subject,a.actor_role,a.event_type,a.entity_type,a.entity_id,a.payload])).rows[0];
+}
+
+async function activeFullPilotCount(){
+  if(!pool) return mem.engagements.filter(x=>x.status==='ACTIVE' && x.scope?.delivery_mode==='FULL_PILOT').length;
+  const q=await pool.query("select count(*)::int n from engagements where status='ACTIVE' and scope->>'delivery_mode'='FULL_PILOT'");
+  return q.rows[0]?.n||0;
+}
+
 async function learningExperimentsFor(tenantId, productId=null){
   if(!tenantId) return [];
   if(!pool){
@@ -226,10 +250,12 @@ app.get('/api/bootstrap', async (req,res)=>{
       evidence:mem.evidence.filter(x=>allow.has(x.tenant_id)),
       experiments:mem.experiments.filter(x=>allow.has(x.tenant_id)),
       providerInvocations:mem.providerInvocations.filter(x=>allow.has(x.tenant_id)),
-      policyChecks:mem.policyChecks.filter(x=>allow.has(x.tenant_id))
+      policyChecks:mem.policyChecks.filter(x=>allow.has(x.tenant_id)),
+      engagements:mem.engagements.filter(x=>!x.tenant_id||allow.has(x.tenant_id)),
+      auditEvents:mem.auditEvents.filter(x=>!x.tenant_id||allow.has(x.tenant_id))
     });
   }
-  const [tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks] = await Promise.all([
+  const [tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks,engagements,auditEvents] = await Promise.all([
     rows('select * from tenants order by created_at'),
     rows('select * from products order by created_at'),
     rows('select * from jobs order by created_at desc limit 200'),
@@ -240,9 +266,11 @@ app.get('/api/bootstrap', async (req,res)=>{
     rows('select * from evidence_events order by created_at desc limit 500'),
     rows('select * from experiments order by created_at desc limit 500'),
     rows('select * from provider_invocations order by created_at desc limit 500'),
-    rows('select * from policy_checks order by created_at desc limit 500')
+    rows('select * from policy_checks order by created_at desc limit 500'),
+    rows('select * from engagements order by created_at desc limit 500'),
+    rows('select * from audit_events order by created_at desc limit 1000')
   ]);
-  res.json({tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks});
+  res.json({tenants,products,jobs,feedback,prospects,stockPlans,economics,evidence,experiments,providerInvocations,policyChecks,engagements,auditEvents});
 });
 
 app.post('/api/tenants', async (req,res)=>{
@@ -369,9 +397,11 @@ app.patch('/api/prospects/:id/stage', async (req,res)=>{
   if(!allowed.has(stage)) return res.status(400).json({error:'invalid stage'});
   if(!pool){
     const p=mem.prospects.find(x=>x.id===req.params.id); if(!p)return res.status(404).json({error:'prospect not found'});
-    p.stage=stage;p.updated_at=now();saveLocal();return res.json(p);
+    const previous=p.stage;p.stage=stage;p.updated_at=now();saveLocal();await recordAudit(req,{tenant_id:p.tenant_id,event_type:'PROSPECT_STAGE_CHANGED',entity_type:'prospect',entity_id:p.id,payload:{from:previous,to:stage}});return res.json(p);
   }
+  const before=(await pool.query('select * from prospects where id=$1',[req.params.id])).rows[0];
   const out=(await pool.query('update prospects set stage=$2,updated_at=now() where id=$1 returning *',[req.params.id,stage])).rows[0];
+  if(out) await recordAudit(req,{tenant_id:out.tenant_id,event_type:'PROSPECT_STAGE_CHANGED',entity_type:'prospect',entity_id:out.id,payload:{from:before?.stage||null,to:stage}});
   return out?res.json(out):res.status(404).json({error:'prospect not found'});
 });
 
@@ -595,6 +625,101 @@ app.get('/api/tenant/:tenantId/brain', async (req,res)=>{
 
 app.get('/api/auth/me',(req,res)=>res.json({actor:req.actor||null,authRequired:AUTH_REQUIRED,visibleTenantIds:visibleTenantIds(req.actor)}));
 
+
+app.post('/api/engagements', async (req,res)=>{
+  const scope={
+    delivery_mode:req.body.delivery_mode||'FULL_PILOT',
+    deliverables:Array.isArray(req.body.deliverables)?req.body.deliverables:[],
+    start_window:req.body.start_window||null,
+    notes:req.body.scope_notes||''
+  };
+  const quote=pilotQuote(req.body);
+  const e={id:id(),tenant_id:req.body.tenant_id||null,prospect_id:req.body.prospect_id||null,status:quote.approved?'QUOTE_READY':'DRAFT_QUOTE',scope,quote,payment:{state:'UNPAID',verified:false,amount_received_usd:0},delivery:{jobs:[],started_at:null,delivered_at:null},created_at:now(),updated_at:now()};
+  if(e.tenant_id && !tenantAccessOr403(req,res,e.tenant_id)) return;
+  if(!pool){mem.engagements.unshift(e);saveLocal();await recordAudit(req,{tenant_id:e.tenant_id,event_type:'ENGAGEMENT_CREATED',entity_type:'engagement',entity_id:e.id,payload:{status:e.status,quote:e.quote,scope:e.scope}});return res.json(e)}
+  const out=(await pool.query('insert into engagements(id,tenant_id,prospect_id,status,scope,quote,payment,delivery) values($1,$2,$3,$4,$5,$6,$7,$8) returning *',[e.id,e.tenant_id,e.prospect_id,e.status,e.scope,e.quote,e.payment,e.delivery])).rows[0];
+  await recordAudit(req,{tenant_id:out.tenant_id,event_type:'ENGAGEMENT_CREATED',entity_type:'engagement',entity_id:out.id,payload:{status:out.status,quote:out.quote,scope:out.scope}});
+  res.json(out);
+});
+
+app.get('/api/engagements', async (req,res)=>{
+  const tenant=req.query.tenant_id||null;
+  if(tenant && !tenantAccessOr403(req,res,tenant)) return;
+  if(!pool){
+    const visible=visibleTenantIds(req.actor);
+    if(visible.includes('*')) return res.json(mem.engagements);
+    const allow=new Set(visible);return res.json(mem.engagements.filter(x=>!x.tenant_id||allow.has(x.tenant_id)));
+  }
+  if(tenant) return res.json(await rows('select * from engagements where tenant_id=$1 order by created_at desc',[tenant]));
+  if(req.actor?.role==='OWNER') return res.json(await rows('select * from engagements order by created_at desc limit 500'));
+  const ids=visibleTenantIds(req.actor);if(!ids.length) return res.json([]);
+  return res.json(await rows('select * from engagements where tenant_id=any($1::text[]) order by created_at desc',[ids]));
+});
+
+app.post('/api/engagements/:id/payment', async (req,res)=>{
+  const payment=paymentTruth(req.body);
+  let e=null;
+  if(!pool)e=mem.engagements.find(x=>x.id===req.params.id)||null;
+  else e=(await pool.query('select * from engagements where id=$1',[req.params.id])).rows[0]||null;
+  if(!e) return res.status(404).json({error:'engagement not found'});
+  if(e.tenant_id && !tenantAccessOr403(req,res,e.tenant_id)) return;
+  const status=payment.state==='PAID_VERIFIED'?'PAID_VERIFIED':e.status;
+  if(!pool){e.payment=payment;e.status=status;e.updated_at=now();saveLocal()}
+  else e=(await pool.query('update engagements set payment=$2,status=$3,updated_at=now() where id=$1 returning *',[e.id,payment,status])).rows[0];
+  await recordAudit(req,{tenant_id:e.tenant_id,event_type:'PAYMENT_STATE_CHANGED',entity_type:'engagement',entity_id:e.id,payload:{payment_state:payment.state,amount_received_usd:payment.amount_received_usd,verification_source:payment.verification_source}});
+  res.json(e);
+});
+
+app.post('/api/engagements/:id/activate', async (req,res)=>{
+  let e=null;
+  if(!pool)e=mem.engagements.find(x=>x.id===req.params.id)||null;
+  else e=(await pool.query('select * from engagements where id=$1',[req.params.id])).rows[0]||null;
+  if(!e) return res.status(404).json({error:'engagement not found'});
+  if(!e.tenant_id) return res.status(409).json({error:'TENANT_REQUIRED_BEFORE_ACTIVATION'});
+  if(!tenantAccessOr403(req,res,e.tenant_id)) return;
+  const admission=JSON.parse(fs.readFileSync(path.join(__dirname,'config','admission-policy.json'),'utf8'));
+  const active=await activeFullPilotCount();
+  const gate=canActivatePilot({quote:e.quote,payment:e.payment,full_pilots_active:active,full_pilot_cap:admission.simultaneous_full_pilots_cap||2});
+  if(!gate.can_activate) return res.status(409).json({error:'PILOT_ACTIVATION_BLOCKED',gate});
+  const delivery={...(e.delivery||{}),started_at:now()};
+  if(!pool){e.status='ACTIVE';e.delivery=delivery;e.updated_at=now();saveLocal()}
+  else e=(await pool.query("update engagements set status='ACTIVE',delivery=$2,updated_at=now() where id=$1 returning *",[e.id,delivery])).rows[0];
+  if(e.prospect_id){
+    if(!pool){const p=mem.prospects.find(x=>x.id===e.prospect_id);if(p){p.stage='PAID_TEST';p.updated_at=now();}}
+    else await pool.query("update prospects set stage='PAID_TEST',updated_at=now() where id=$1",[e.prospect_id]);
+    if(!pool) saveLocal();
+  }
+  await recordAudit(req,{tenant_id:e.tenant_id,event_type:'PILOT_ACTIVATED',entity_type:'engagement',entity_id:e.id,payload:{active_full_pilots_before:active,delivery_mode:e.scope?.delivery_mode}});
+  res.json({...e,activation_gate:gate});
+});
+
+app.post('/api/engagements/:id/deliver', async (req,res)=>{
+  let e=null;
+  if(!pool)e=mem.engagements.find(x=>x.id===req.params.id)||null;
+  else e=(await pool.query('select * from engagements where id=$1',[req.params.id])).rows[0]||null;
+  if(!e) return res.status(404).json({error:'engagement not found'});
+  if(e.tenant_id && !tenantAccessOr403(req,res,e.tenant_id)) return;
+  if(e.status!=='ACTIVE') return res.status(409).json({error:'ENGAGEMENT_NOT_ACTIVE'});
+  const delivery={...(e.delivery||{}),jobs:Array.isArray(req.body.job_ids)?req.body.job_ids:(e.delivery?.jobs||[]),delivered_at:now(),result_summary:req.body.result_summary||''};
+  if(!pool){e.status='DELIVERED';e.delivery=delivery;e.updated_at=now();saveLocal()}
+  else e=(await pool.query("update engagements set status='DELIVERED',delivery=$2,updated_at=now() where id=$1 returning *",[e.id,delivery])).rows[0];
+  await recordAudit(req,{tenant_id:e.tenant_id,event_type:'PILOT_DELIVERED',entity_type:'engagement',entity_id:e.id,payload:{jobs:delivery.jobs}});
+  res.json(e);
+});
+
+app.get('/api/audit', async (req,res)=>{
+  const tenant=req.query.tenant_id||null;
+  if(tenant && !tenantAccessOr403(req,res,tenant)) return;
+  if(!pool){
+    const visible=visibleTenantIds(req.actor);if(visible.includes('*')) return res.json(mem.auditEvents.slice(0,1000));
+    const allow=new Set(visible);return res.json(mem.auditEvents.filter(x=>!x.tenant_id||allow.has(x.tenant_id)).slice(0,1000));
+  }
+  if(tenant) return res.json(await rows('select * from audit_events where tenant_id=$1 order by created_at desc limit 1000',[tenant]));
+  if(req.actor?.role==='OWNER') return res.json(await rows('select * from audit_events order by created_at desc limit 1000'));
+  const ids=visibleTenantIds(req.actor);if(!ids.length) return res.json([]);
+  res.json(await rows('select * from audit_events where tenant_id=any($1::text[]) order by created_at desc limit 1000',[ids]));
+});
+
 app.get('/api/owner', async (req,res)=>{
   if(!ownerOr403(req,res)) return;
   if(!pool)return res.json({
@@ -602,9 +727,9 @@ app.get('/api/owner', async (req,res)=>{
     winners:mem.feedback.filter(x=>x.verdict==='WINNER').length,prospects:mem.prospects.length,
     stockPlans:mem.stockPlans.length,economics:mem.economics.length,evidence:mem.evidence.length,
     experiments:mem.experiments.length,providerInvocations:mem.providerInvocations.length,
-    policyChecks:mem.policyChecks.length,db:'local-json'
+    policyChecks:mem.policyChecks.length,engagements:mem.engagements.length,auditEvents:mem.auditEvents.length,db:'local-json'
   });
-  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics,(select count(*) from evidence_events)::int evidence,(select count(*) from experiments)::int experiments,(select count(*) from provider_invocations)::int provider_invocations,(select count(*) from policy_checks)::int policy_checks");
+  const q=await pool.query("select (select count(*) from tenants)::int tenants,(select count(*) from products)::int products,(select count(*) from jobs)::int jobs,(select count(*) from feedback where verdict='WINNER')::int winners,(select count(*) from prospects)::int prospects,(select count(*) from stock_plans)::int stock_plans,(select count(*) from economics)::int economics,(select count(*) from evidence_events)::int evidence,(select count(*) from experiments)::int experiments,(select count(*) from provider_invocations)::int provider_invocations,(select count(*) from policy_checks)::int policy_checks,(select count(*) from engagements)::int engagements,(select count(*) from audit_events)::int audit_events");
   res.json({...q.rows[0],db:'postgres'});
 });
 
