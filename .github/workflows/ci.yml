@@ -22,6 +22,7 @@ jobs:
       - run: node --check lib/reply-core.mjs
       - run: node --check lib/learning-core.mjs
       - run: node --check lib/storage-core.mjs
+      - run: node --check lib/auth-core.mjs
       - run: node --check public/commercial.js
       - run: node test/smoke.mjs
       - run: node test/p0-smoke.mjs
@@ -31,3 +32,4 @@ jobs:
       - run: node test/commercial-ui-smoke.mjs
       - run: node test/learning-loop-smoke.mjs
       - run: node test/storage-smoke.mjs
+      - run: node test/auth-smoke.mjs
