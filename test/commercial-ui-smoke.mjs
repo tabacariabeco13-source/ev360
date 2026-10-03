@@ -29,6 +29,7 @@ try{
   if(!html.includes('Production Planner')) throw new Error('production planner UI missing');
   if(!html.includes('Paid Pilot Engine')) throw new Error('paid pilot UI missing');
   if(!html.includes('Audit Ledger')) throw new Error('audit ledger UI missing');
+  if(!html.includes('Performance → Learning')) throw new Error('performance learning UI missing');
   if(!html.includes('/commercial.js')) throw new Error('commercial client script missing');
 
   const js=await (await fetch(base+'/commercial.js')).text();
@@ -37,6 +38,7 @@ try{
   if(!js.includes('/api/production/plan')) throw new Error('production planner UI wiring missing');
   if(!js.includes('/api/engagements')) throw new Error('engagement UI wiring missing');
   if(!js.includes('/api/audit')) throw new Error('audit UI wiring missing');
+  if(!js.includes('/api/performance-events')) throw new Error('performance UI wiring missing');
 
   const admission=await json('/api/admission-policy');
   if(admission.simultaneous_full_pilots_cap!==2) throw new Error('admission policy cap drifted');
