@@ -13,13 +13,16 @@ import { createLocalAssetStore, distinctAssetCount } from './lib/storage-core.mj
 import { parseAuthKeys, authenticateHeaders, canAccessTenant, hasRole, visibleTenantIds } from './lib/auth-core.mjs';
 import { productionPlan } from './lib/production-core.mjs';
 import { pilotQuote, paymentTruth, canActivatePilot } from './lib/engagement-core.mjs';
+import { verifyStripeWebhook, stripePaymentFromEvent } from './lib/stripe-core.mjs';
 
 const { Pool } = pg;
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+app.post('/api/payments/stripe/webhook', express.raw({type:'application/json',limit:'2mb'}), stripeWebhookHandler);
 app.use(express.json({ limit: '18mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -206,6 +209,57 @@ function stockRecovery({stock=0,cost=0,price=0,deadline}){
 }
 
 async function rows(query, params=[]){ return (await pool.query(query,params)).rows; }
+
+async function stripeEventSeen(eventId){
+  if(!eventId) return false;
+  if(!pool) return mem.auditEvents.some(x=>x.event_type==='STRIPE_WEBHOOK' && x.payload?.event_id===eventId);
+  const q=await pool.query("select 1 from audit_events where event_type='STRIPE_WEBHOOK' and payload->>'event_id'=$1 limit 1",[eventId]);
+  return q.rowCount>0;
+}
+
+async function stripeWebhookHandler(req,res){
+  const verified=verifyStripeWebhook({
+    rawBody:req.body,
+    signatureHeader:req.headers['stripe-signature']||'',
+    secret:STRIPE_WEBHOOK_SECRET
+  });
+  if(!verified.ok){
+    const status=verified.error==='WEBHOOK_SECRET_NOT_CONFIGURED'?503:400;
+    return res.status(status).json({error:verified.error});
+  }
+  let event;
+  try{event=JSON.parse(Buffer.isBuffer(req.body)?req.body.toString('utf8'):String(req.body||''))}
+  catch{return res.status(400).json({error:'INVALID_JSON'})}
+  if(await stripeEventSeen(event.id)) return res.json({ok:true,duplicate:true,event_id:event.id});
+  const payment=stripePaymentFromEvent(event);
+  if(!payment.supported){
+    await recordAudit(req,{event_type:'STRIPE_WEBHOOK',entity_type:'payment_event',entity_id:event.id||null,payload:{event_id:event.id||null,type:event.type,ignored:true}});
+    return res.json({ok:true,ignored:true,type:event.type});
+  }
+  if(!payment.engagement_id){
+    await recordAudit(req,{event_type:'STRIPE_WEBHOOK',entity_type:'payment_event',entity_id:event.id||null,payload:{event_id:event.id||null,type:event.type,ignored:true,reason:'NO_ENGAGEMENT_ID'}});
+    return res.json({ok:true,ignored:true,reason:'NO_ENGAGEMENT_ID'});
+  }
+  let engagement=null;
+  if(!pool) engagement=mem.engagements.find(x=>x.id===payment.engagement_id)||null;
+  else engagement=(await pool.query('select * from engagements where id=$1',[payment.engagement_id])).rows[0]||null;
+  if(!engagement){
+    await recordAudit(req,{event_type:'STRIPE_WEBHOOK',entity_type:'payment_event',entity_id:event.id||null,payload:{event_id:event.id||null,type:event.type,ignored:true,reason:'ENGAGEMENT_NOT_FOUND',engagement_id:payment.engagement_id}});
+    return res.json({ok:true,ignored:true,reason:'ENGAGEMENT_NOT_FOUND'});
+  }
+  const truth=paymentTruth({
+    amount_received_usd:payment.amount_received_usd,
+    verification_source:'STRIPE_WEBHOOK',
+    provider_reference:payment.provider_reference
+  });
+  if(!pool){
+    engagement.payment=truth;engagement.status='PAID_VERIFIED';engagement.updated_at=now();saveLocal();
+  }else{
+    engagement=(await pool.query("update engagements set payment=$2,status='PAID_VERIFIED',updated_at=now() where id=$1 returning *",[engagement.id,truth])).rows[0];
+  }
+  await recordAudit(req,{tenant_id:engagement.tenant_id,event_type:'STRIPE_WEBHOOK',entity_type:'engagement',entity_id:engagement.id,payload:{event_id:event.id||null,type:event.type,amount_received_usd:truth.amount_received_usd,currency:payment.currency}});
+  return res.json({ok:true,engagement_id:engagement.id,payment:truth});
+}
 
 async function recordAudit(req,{tenant_id=null,event_type,entity_type,entity_id=null,payload={}}){
   const a={id:id(),tenant_id,actor_subject:req.actor?.subject||'unknown',actor_role:req.actor?.role||'UNKNOWN',event_type,entity_type,entity_id,payload,created_at:now()};
