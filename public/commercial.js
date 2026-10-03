@@ -26,6 +26,9 @@ async function loadCommercial(){
     if(cq('#brandName')) cq('#brandName').textContent=brand.brand||'AdNimbly';
     if(cq('#productName')) cq('#productName').textContent=(brand.product||'Creative Ops Autopilot')+' • '+(brand.category||'Creative Revenue Operating System')+' • v0.13';
     cq('#providerTruth').innerHTML=(providers.providers||[]).map(p=>'<div class="item"><b>'+p.label+'</b><small>'+p.status+' • '+p.mode+' • '+(p.estimated_cost_usd===null?'preço desconhecido':'US$ '+p.estimated_cost_usd)+'</small></div>').join('');
+    if(cq('#pilotTenant')) cq('#pilotTenant').innerHTML=(bootstrap.tenants||[]).map(t=>'<option value="'+t.id+'">'+t.name+' • '+t.country+'</option>').join('');
+    if(cq('#engagementList')) cq('#engagementList').innerHTML=(engagements||[]).slice(0,12).map(e=>'<div class="item"><b>'+e.status+' • '+money(e.quote?.price_usd)+'</b><small>'+(e.tenant_id||'sem tenant')+' • payment '+(e.payment?.state||'UNPAID')+' • '+e.id+'</small></div>').join('')||'<div class="muted">Nenhum engagement.</div>';
+    if(cq('#auditList')) cq('#auditList').innerHTML=(audit||[]).slice(0,10).map(a=>'<div class="item"><b>'+a.event_type+'</b><small>'+a.entity_type+' '+(a.entity_id||'')+' • '+new Date(a.created_at).toLocaleString()+'</small></div>').join('')||'<div class="muted">Sem eventos ainda.</div>';
 
     const contacted=(bootstrap.prospects||[]).filter(p=>p.stage==='CONTACTED').length;
     const replied=(bootstrap.prospects||[]).filter(p=>p.stage==='REPLIED').length;
@@ -60,7 +63,9 @@ async function loadCommercial(){
       economics:owner.economics,
       experiments:owner.experiments,
       providerInvocations:owner.providerInvocations||owner.provider_invocations,
-      policyChecks:owner.policyChecks||owner.policy_checks
+      policyChecks:owner.policyChecks||owner.policy_checks,
+      engagements:owner.engagements,
+      auditEvents:owner.auditEvents||owner.audit_events
     },null,2);
 
     status.textContent='Comercial sincronizado. Sem receita inventada: resposta ≠ pagamento.';
