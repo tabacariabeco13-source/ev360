@@ -784,6 +784,58 @@ app.get('/api/audit', async (req,res)=>{
 });
 
 
+
+app.post('/api/case-zero/beco13/tiktok-test', async (req,res)=>{
+  if(!ownerOr403(req,res)) return;
+  const productId=req.body.product_id||'fone';
+  let product=null;
+  if(!pool) product=mem.products.find(x=>x.tenant_id==='beco13'&&x.id===productId)||null;
+  else product=(await pool.query("select * from products where tenant_id='beco13' and id=$1",[productId])).rows[0]||null;
+  if(!product) return res.status(404).json({error:'BECO13_PRODUCT_NOT_FOUND',hint:'Seed Case Zero first'});
+  if(sensitiveCategories.has(String(product.category||'').toLowerCase())) return res.status(409).json({error:'CASE_ZERO_TIKTOK_TEST_RESTRICTED_PRODUCT',category:product.category});
+
+  const policy=policyGate({country:'BR',channel:'TikTok Organic',category:product.category});
+  if(policy.level==='BLOCKED') return res.status(409).json({error:'POLICY_BLOCKED',policy});
+
+  const d=director({vertical:product.category||'general',productName:product.name});
+  const learning=summarizeLearning(await learningExperimentsFor('beco13',product.id));
+  const base=d.concepts[Number(req.body.conceptIndex||0)%d.concepts.length];
+  const chosen=applyLearningToConcept(base,learning);
+  const scenes=makeScenes({productName:product.name,concept:chosen,vertical:d.vertical,learning});
+  const job={
+    id:id(),tenant_id:'beco13',product_id:product.id,status:'AWAITING_ASSETS',country:'BR',channel:'TikTok Organic',
+    business_model:'Retail',vertical:product.category||'general',objective:req.body.objective||'whatsapp_leads',
+    direction:{...chosen,vertical:d.vertical,learning_context:learning},policy,cost_guard:{authorizedUsd:0,paidProvider:false,mode:'ATLAS_MANUAL_ZERO_CASH'},
+    scenes,created_at:now(),updated_at:now()
+  };
+  const experiment={
+    id:id(),tenant_id:'beco13',product_id:product.id,parent_job_id:job.id,
+    hypothesis:req.body.hypothesis||'Product-first hook should increase qualified WhatsApp interest from organic TikTok traffic.',
+    changed_variable:req.body.changed_variable||'hook',target_metric:req.body.primary_metric||'whatsapp_leads',
+    baseline:req.body.baseline||{},status:'PLANNED',result:{},learning:{},created_at:now(),updated_at:now()
+  };
+
+  if(!pool){
+    mem.jobs.unshift(job);mem.experiments.unshift(experiment);saveLocal();
+  }else{
+    await pool.query('insert into jobs(id,tenant_id,product_id,status,country,channel,business_model,vertical,objective,direction,policy,cost_guard,scenes) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',[job.id,job.tenant_id,job.product_id,job.status,job.country,job.channel,job.business_model,job.vertical,job.objective,job.direction,job.policy,job.cost_guard,job.scenes]);
+    await pool.query('insert into experiments(id,tenant_id,product_id,parent_job_id,hypothesis,changed_variable,target_metric,baseline,status,result,learning) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[experiment.id,experiment.tenant_id,experiment.product_id,experiment.parent_job_id,experiment.hypothesis,experiment.changed_variable,experiment.target_metric,experiment.baseline,experiment.status,experiment.result,experiment.learning]);
+  }
+
+  await recordAudit(req,{tenant_id:'beco13',event_type:'CASE_ZERO_TIKTOK_TEST_PREPARED',entity_type:'experiment',entity_id:experiment.id,payload:{job_id:job.id,product_id:product.id,channel:'TikTok Organic',primary_metric:experiment.target_metric}});
+
+  res.json({
+    ok:true,job,experiment,
+    measurement_plan:{
+      primary_metric:experiment.target_metric,
+      target:req.body.target??1,
+      min_sample:req.body.min_sample??100,
+      collect:['views','likes','comments','shares','saves','profile_visits','link_clicks','whatsapp_leads','orders','revenue','spend'],
+      rule:'Organic spend must remain 0 unless the owner explicitly authorizes paid media.'
+    }
+  });
+});
+
 app.post('/api/performance-events', async (req,res)=>{
   const tenantId=req.body.tenant_id||null;
   if(!tenantId) return res.status(400).json({error:'tenant_id required'});
