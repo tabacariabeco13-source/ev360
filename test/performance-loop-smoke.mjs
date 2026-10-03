@@ -28,17 +28,16 @@ try{
 
   await req('/api/seed/beco13',{method:'POST',body:'{}'});
 
-  const job1=await req('/api/jobs',{method:'POST',body:body({
-    tenant_id:'beco13',product_id:'fone',productName:'Fone AirDots',category:'tech',
-    country:'BR',channel:'TikTok Organic',business_model:'Retail',vertical:'tech',objective:'whatsapp_leads'
-  })});
-  if(job1.direction?.learning_context?.mode!=='EXPLORE') throw new Error('first Beco job should explore');
+  const restricted=await fetch(base+'/api/case-zero/beco13/tiktok-test',{method:'POST',headers:{'content-type':'application/json'},body:body({product_id:'plastic-cone'})});
+  if(restricted.status!==409) throw new Error('restricted Case Zero product should be blocked');
 
-  const exp=await req('/api/experiments',{method:'POST',body:body({
-    tenant_id:'beco13',product_id:'fone',parent_job_id:job1.id,
-    hypothesis:'Product-first hook increases qualified WhatsApp interest',
-    changed_variable:'hook',target_metric:'whatsapp_leads',baseline:{whatsapp_leads:0}
+  const prepared=await req('/api/case-zero/beco13/tiktok-test',{method:'POST',body:body({
+    product_id:'fone',objective:'whatsapp_leads',primary_metric:'whatsapp_leads',target:2,min_sample:100
   })});
+  const job1=prepared.job;
+  const exp=prepared.experiment;
+  if(job1.direction?.learning_context?.mode!=='EXPLORE') throw new Error('first Beco job should explore');
+  if(prepared.measurement_plan?.primary_metric!=='whatsapp_leads') throw new Error('measurement plan missing');
 
   const perf=await req('/api/performance-events',{method:'POST',body:body({
     tenant_id:'beco13',product_id:'fone',job_id:job1.id,experiment_id:exp.id,
