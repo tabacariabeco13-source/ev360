@@ -12,12 +12,18 @@ async function loadCommercial(){
   const status=cq('#commercialStatus');
   try{
     status.textContent='Carregando operação comercial…';
-    const [board,bootstrap,owner,admission]=await Promise.all([
+    const [board,bootstrap,owner,admission,brand,providers]=await Promise.all([
       cApi('/api/sales/leads'),
       cApi('/api/bootstrap'),
       cApi('/api/owner'),
-      cApi('/api/admission-policy')
+      cApi('/api/admission-policy'),
+      cApi('/api/brand'),
+      cApi('/api/providers')
     ]);
+
+    if(cq('#brandName')) cq('#brandName').textContent=brand.brand||'AdNimbly';
+    if(cq('#productName')) cq('#productName').textContent=(brand.product||'Creative Ops Autopilot')+' • '+(brand.category||'Creative Revenue Operating System')+' • v0.13';
+    cq('#providerTruth').innerHTML=(providers.providers||[]).map(p=>'<div class="item"><b>'+p.label+'</b><small>'+p.status+' • '+p.mode+' • '+(p.estimated_cost_usd===null?'preço desconhecido':'US$ '+p.estimated_cost_usd)+'</small></div>').join('');
 
     const contacted=(bootstrap.prospects||[]).filter(p=>p.stage==='CONTACTED').length;
     const replied=(bootstrap.prospects||[]).filter(p=>p.stage==='REPLIED').length;
@@ -111,3 +117,14 @@ cq('#runCapacity')?.addEventListener('click',async()=>{
 });
 
 loadCommercial();
+
+
+cq('#runProductionPlan')?.addEventListener('click',async()=>{
+  try{
+    const r=await cApi('/api/production/plan',{method:'POST',body:JSON.stringify({
+      capability:cq('#prodCapability').value,
+      authorized_usd:Number(cq('#prodAuthorized').value||0)
+    })});
+    cq('#productionPlanOutput').textContent=JSON.stringify(r,null,2);
+  }catch(e){cq('#productionPlanOutput').textContent=e.message}
+});
