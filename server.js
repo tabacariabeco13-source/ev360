@@ -11,6 +11,7 @@ import { classifyReply, buildReplyPlan } from './lib/reply-core.mjs';
 import { summarizeLearning, applyLearningToConcept, learningScenePrefix } from './lib/learning-core.mjs';
 import { createLocalAssetStore, distinctAssetCount } from './lib/storage-core.mjs';
 import { parseAuthKeys, authenticateHeaders, canAccessTenant, hasRole, visibleTenantIds } from './lib/auth-core.mjs';
+import { productionPlan } from './lib/production-core.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -614,6 +615,40 @@ app.get('/api/admission-policy', (req,res)=>{
     res.json(JSON.parse(fs.readFileSync(p,'utf8')));
   }catch(e){
     res.status(500).json({error:'admission policy unavailable'});
+  }
+});
+
+
+app.get('/api/providers', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','provider-registry.json');
+    res.json(JSON.parse(fs.readFileSync(p,'utf8')));
+  }catch(e){
+    res.status(500).json({error:'provider registry unavailable'});
+  }
+});
+
+app.get('/api/brand', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','brand.json');
+    res.json(JSON.parse(fs.readFileSync(p,'utf8')));
+  }catch(e){
+    res.status(500).json({error:'brand config unavailable'});
+  }
+});
+
+app.post('/api/production/plan', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','provider-registry.json');
+    const registry=JSON.parse(fs.readFileSync(p,'utf8'));
+    res.json(productionPlan({
+      capability:req.body.capability||'GENERATE_ASSET',
+      authorized_usd:Number(req.body.authorized_usd||0),
+      registry,
+      allow_on_demand:Boolean(req.body.allow_on_demand)
+    }));
+  }catch(e){
+    res.status(500).json({error:'production plan unavailable'});
   }
 });
 
