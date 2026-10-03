@@ -237,3 +237,25 @@ cq('#recordPerformance')?.addEventListener('click',async()=>{
     await loadCommercial();
   }catch(e){cq('#performanceOutput').textContent=e.message}
 });
+
+
+cq('#prepareBecoTikTok')?.addEventListener('click',async()=>{
+  try{
+    const metric=cq('#becoTikTokMetric').value;
+    const r=await cApi('/api/case-zero/beco13/tiktok-test',{method:'POST',body:JSON.stringify({
+      product_id:cq('#becoTikTokProduct').value,
+      objective:metric,
+      primary_metric:metric,
+      target:Number(cq('#perfTarget')?.value||1),
+      min_sample:Number(cq('#perfMinSample')?.value||100)
+    })});
+    cq('#becoTikTokOutput').textContent=JSON.stringify(r,null,2);
+    if(cq('#perfTenant')) cq('#perfTenant').value='beco13';
+    await loadCommercial();
+    if(cq('#perfTenant')) cq('#perfTenant').value='beco13';
+    if(cq('#perfJob')) cq('#perfJob').value=r.job.id;
+    if(cq('#perfExperiment')) cq('#perfExperiment').value=r.experiment.id;
+    if(cq('#perfPrimary')) cq('#perfPrimary').value=metric;
+    if(cq('#perfChannel')) cq('#perfChannel').value='TikTok Organic';
+  }catch(e){cq('#becoTikTokOutput').textContent=e.message}
+});
