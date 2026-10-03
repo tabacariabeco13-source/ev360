@@ -12,7 +12,7 @@ async function loadCommercial(){
   const status=cq('#commercialStatus');
   try{
     status.textContent='Carregando operação comercial…';
-    const [board,bootstrap,owner,admission,brand,providers,engagements,audit,performance]=await Promise.all([
+    const [board,bootstrap,owner,admission,brand,providers,engagements,audit,performance,deployReadiness]=await Promise.all([
       cApi('/api/sales/leads'),
       cApi('/api/bootstrap'),
       cApi('/api/owner'),
@@ -21,7 +21,8 @@ async function loadCommercial(){
       cApi('/api/providers'),
       cApi('/api/engagements'),
       cApi('/api/audit'),
-      cApi('/api/performance-events')
+      cApi('/api/performance-events'),
+      cApi('/api/deploy-readiness')
     ]);
 
     if(cq('#brandName')) cq('#brandName').textContent=brand.brand||'AdNimbly';
@@ -43,6 +44,7 @@ async function loadCommercial(){
     if(cq('#engagementList')) cq('#engagementList').innerHTML=(engagements||[]).slice(0,12).map(e=>'<div class="item"><b>'+e.status+' • '+money(e.quote?.price_usd)+'</b><small>'+(e.tenant_id||'sem tenant')+' • payment '+(e.payment?.state||'UNPAID')+' • '+e.id+'</small></div>').join('')||'<div class="muted">Nenhum engagement.</div>';
     if(cq('#auditList')) cq('#auditList').innerHTML=(audit||[]).slice(0,10).map(a=>'<div class="item"><b>'+a.event_type+'</b><small>'+a.entity_type+' '+(a.entity_id||'')+' • '+new Date(a.created_at).toLocaleString()+'</small></div>').join('')||'<div class="muted">Sem eventos ainda.</div>';
     if(cq('#performanceList')) cq('#performanceList').innerHTML=(performance||[]).slice(0,12).map(p=>'<div class="item"><b>'+p.channel+' • '+(p.evaluation?.outcome||'UNKNOWN')+'</b><small>'+p.primary_metric+' = '+(p.evaluation?.primary_value??'-')+' • sample '+(p.evaluation?.sample??0)+' • '+new Date(p.observed_at).toLocaleString()+'</small></div>').join('')||'<div class="muted">Sem performance real registrada.</div>';
+    if(cq('#deployReadiness')) cq('#deployReadiness').innerHTML=Object.entries(deployReadiness.states||{}).map(([k,v])=>'<div class="item"><b>'+k.replaceAll('_',' ').toUpperCase()+' • '+(v.ready?'READY':'BLOCKED')+'</b><small>'+(v.blockers?.length?v.blockers.join(' • '):'sem bloqueadores')+'</small></div>').join('');
 
     const contacted=(bootstrap.prospects||[]).filter(p=>p.stage==='CONTACTED').length;
     const replied=(bootstrap.prospects||[]).filter(p=>p.stage==='REPLIED').length;
