@@ -1,0 +1,113 @@
+const cq=s=>document.querySelector(s);
+async function cApi(url,opt={}){
+  const r=await fetch(url,{headers:{'Content-Type':'application/json',...(opt.headers||{})},...opt});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||'request failed');
+  return j;
+}
+
+function money(n){return '$'+Number(n||0).toFixed(2)}
+
+async function loadCommercial(){
+  const status=cq('#commercialStatus');
+  try{
+    status.textContent='Carregando operação comercial…';
+    const [board,bootstrap,owner,admission]=await Promise.all([
+      cApi('/api/sales/leads'),
+      cApi('/api/bootstrap'),
+      cApi('/api/owner'),
+      cApi('/api/admission-policy')
+    ]);
+
+    const contacted=(bootstrap.prospects||[]).filter(p=>p.stage==='CONTACTED').length;
+    const replied=(bootstrap.prospects||[]).filter(p=>p.stage==='REPLIED').length;
+    const paid=(bootstrap.prospects||[]).filter(p=>['PAID_TEST','PROPOSAL','WON'].includes(p.stage)).length;
+
+    cq('#commercialKpis').innerHTML=[
+      ['Alvos mapeados',board.mapped_count||0],
+      ['Contactados',contacted],
+      ['Respostas',replied],
+      ['Em dinheiro',paid],
+      ['Pilotos full máx.',admission.simultaneous_full_pilots_cap||0],
+      ['Ativos escalonados',admission.maximum_active_buyers_with_staggered_phases||0]
+    ].map(([k,v])=>'<div class="kpi"><b>'+v+'</b><span>'+k+'</span></div>').join('');
+
+    cq('#leadBoard').innerHTML=(board.ranked||[]).slice(0,10).map((x,i)=>{
+      const d=x.decision||{};
+      return '<div class="item"><b>#'+(i+1)+' '+(x.company||x.title)+'</b>'+
+        '<small>'+[x.title,x.budget,x.posted].filter(Boolean).join(' • ')+'</small>'+
+        '<div style="margin-top:6px"><span class="pill">'+(d.band||'UNRANKED')+'</span> <span class="pill">score '+(d.score??'-')+'</span></div>'+
+        '<small style="margin-top:6px">'+(x.attack||'')+'</small></div>';
+    }).join('')||'<div class="muted">Nenhum alvo carregado.</div>';
+
+    cq('#admissionBox').innerHTML=
+      '<div class="gate"><span>Pilotos completos simultâneos</span><b class="allow">'+admission.simultaneous_full_pilots_cap+'</b></div>'+
+      '<div class="gate"><span>Clientes ativos com fases escalonadas</span><b class="allow">'+admission.maximum_active_buyers_with_staggered_phases+'</b></div>'+
+      '<div class="gate"><span>Prometer 8 operações completas agora</span><b class="'+(admission.eight_full_deliveries_claim_allowed?'allow':'review')+'">'+(admission.eight_full_deliveries_claim_allowed?'SIM':'NÃO')+'</b></div>'+
+      '<div class="status">'+(admission.promotion_rule||'')+'</div>';
+
+    cq('#commercialOwnerSnapshot').textContent=JSON.stringify({
+      db:owner.db,
+      prospects:owner.prospects,
+      economics:owner.economics,
+      experiments:owner.experiments,
+      providerInvocations:owner.providerInvocations||owner.provider_invocations,
+      policyChecks:owner.policyChecks||owner.policy_checks
+    },null,2);
+
+    status.textContent='Comercial sincronizado. Sem receita inventada: resposta ≠ pagamento.';
+  }catch(e){
+    status.textContent='Falha ao carregar comercial: '+e.message;
+  }
+}
+
+cq('#loadCommercial')?.addEventListener('click',loadCommercial);
+
+cq('#runReplyTriage')?.addEventListener('click',async()=>{
+  try{
+    const r=await cApi('/api/sales/reply-triage',{
+      method:'POST',
+      body:JSON.stringify({
+        reply_text:cq('#replyText').value,
+        buyer:{company:cq('#replyBuyer').value||'Prospect'},
+        capacity:{full_slots_available:Number(cq('#replySlots').value||0)}
+      })
+    });
+    cq('#replyOutput').textContent=JSON.stringify(r,null,2);
+  }catch(e){cq('#replyOutput').textContent=e.message}
+});
+
+cq('#runQuoteGuard')?.addEventListener('click',async()=>{
+  try{
+    const body={
+      price_usd:Number(cq('#qPrice').value||0),
+      provider_cost_usd:Number(cq('#qProvider').value||0),
+      infra_cost_usd:Number(cq('#qInfra').value||0),
+      payment_fees_usd:Number(cq('#qFees').value||0),
+      human_hours:Number(cq('#qHours').value||0),
+      owner_hour_value_usd:Number(cq('#qHourValue').value||0),
+      contingency_usd:Number(cq('#qContingency').value||0),
+      minimum_margin:Number(cq('#qMargin').value||0.35)
+    };
+    const r=await cApi('/api/pricing/guard',{method:'POST',body:JSON.stringify(body)});
+    cq('#quoteOutput').textContent=JSON.stringify(r,null,2);
+  }catch(e){cq('#quoteOutput').textContent=e.message}
+});
+
+cq('#runCapacity')?.addEventListener('click',async()=>{
+  try{
+    const body={
+      required_people:Number(cq('#capPeople').value||0),
+      hours_per_person_week:Number(cq('#capHours').value||0),
+      measured_work_units_per_hour:Number(cq('#capUnitsHour').value||0),
+      operator_hours_available_week:Number(cq('#capOperatorHours').value||0),
+      automation_share:Number(cq('#capAutomation').value||0),
+      quality_pass_rate:Number(cq('#capQuality').value||0),
+      work_units_per_person_week:Number(cq('#capUnitsSeat').value||0)
+    };
+    const r=await cApi('/api/capacity/assess',{method:'POST',body:JSON.stringify(body)});
+    cq('#capacityOutput').textContent=JSON.stringify(r,null,2);
+  }catch(e){cq('#capacityOutput').textContent=e.message}
+});
+
+loadCommercial();
