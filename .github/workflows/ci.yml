@@ -19,7 +19,9 @@ jobs:
       - run: node --check lib/decision-core.mjs
       - run: node --check lib/sales-core.mjs
       - run: node --check lib/capacity-core.mjs
+      - run: node --check lib/reply-core.mjs
       - run: node test/smoke.mjs
       - run: node test/p0-smoke.mjs
       - run: node test/sales-smoke.mjs
       - run: node test/capacity-smoke.mjs
+      - run: node test/reply-smoke.mjs
