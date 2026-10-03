@@ -486,6 +486,16 @@ app.get('/api/owner', async (req,res)=>{
   res.json({...q.rows[0],db:'postgres'});
 });
 
+
+app.get('/api/admission-policy', (req,res)=>{
+  try{
+    const p=path.join(__dirname,'config','admission-policy.json');
+    res.json(JSON.parse(fs.readFileSync(p,'utf8')));
+  }catch(e){
+    res.status(500).json({error:'admission policy unavailable'});
+  }
+});
+
 app.get('/api/capabilities', (req,res)=>{
   try{
     const p=path.join(__dirname,'config','capability-registry.json');
