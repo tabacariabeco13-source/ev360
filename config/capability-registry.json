@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-02-p0.12",
+  "version": "2026-10-03-v0.14",
   "strategy": "provider-neutral creative revenue orchestration",
   "core_loop": [
     "evidence",
@@ -127,8 +127,17 @@
     "Every paid test must record unit economics"
   ],
   "last_ci": {
-    "run_id": 37049541809,
-    "commit": "12a31b96d857573f4cf5639cd36c08c0804c631d",
+    "run_id": 37129548380,
+    "commit": "20f22091e150a2a68f50e206b93b6401fb7026f0",
     "conclusion": "success"
+  },
+  "runtime_proofs": {
+    "performance_to_learning": "FUNCTIONAL_LOCAL_TESTED",
+    "beco13_tiktok_organic_case_zero": "FUNCTIONAL_LOCAL_TESTED",
+    "vercel_adapter": "FUNCTIONAL_TESTED_NOT_DEPLOYED",
+    "deploy_readiness_gate": "FUNCTIONAL_TESTED",
+    "durable_production_database": "NOT_CONFIGURED",
+    "durable_object_storage": "NOT_CONFIGURED",
+    "public_url": "NOT_DEPLOYED"
   }
 }
