@@ -1,0 +1,211 @@
+{
+  "benchmark_id": "RECOVERY-001",
+  "purpose": "Synthetic exception-investigation benchmark. No real client data.",
+  "cases": [
+    {
+      "id": "R001",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 180
+      },
+      "rma": {
+        "id": "RMA-1801"
+      },
+      "credit_memo": null,
+      "applications": [],
+      "expected": {
+        "classification": "MISSING_CREDIT_MEMO",
+        "potential_amount": 180
+      }
+    },
+    {
+      "id": "R002",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 240
+      },
+      "rma": {
+        "id": "RMA-1802"
+      },
+      "credit_memo": {
+        "id": "CM-2201",
+        "amount": 150
+      },
+      "applications": [],
+      "expected": {
+        "classification": "PARTIAL_CREDIT_MEMO",
+        "potential_amount": 90
+      }
+    },
+    {
+      "id": "R003",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 320
+      },
+      "rma": {
+        "id": "RMA-1803"
+      },
+      "credit_memo": {
+        "id": "CM-2202",
+        "amount": 320
+      },
+      "applications": [],
+      "expected": {
+        "classification": "ISSUED_UNAPPLIED",
+        "potential_amount": 320
+      }
+    },
+    {
+      "id": "R004",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 500
+      },
+      "rma": {
+        "id": "RMA-1804"
+      },
+      "credit_memo": {
+        "id": "CM-2203",
+        "amount": 500
+      },
+      "applications": [
+        {
+          "invoice": "INV-901",
+          "amount": 300
+        }
+      ],
+      "expected": {
+        "classification": "PARTIALLY_APPLIED",
+        "potential_amount": 200
+      }
+    },
+    {
+      "id": "R005",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 125
+      },
+      "rma": {
+        "id": "RMA-1805"
+      },
+      "credit_memo": {
+        "id": "CM-2204",
+        "amount": 125
+      },
+      "applications": [
+        {
+          "invoice": "INV-902",
+          "amount": 125
+        }
+      ],
+      "expected": {
+        "classification": "RESOLVED_NO_EXCEPTION",
+        "potential_amount": 0
+      }
+    },
+    {
+      "id": "R006",
+      "approval": {
+        "status": "PENDING",
+        "amount": 275
+      },
+      "rma": {
+        "id": "RMA-1806"
+      },
+      "credit_memo": null,
+      "applications": [],
+      "expected": {
+        "classification": "INCONCLUSIVE_MISSING_APPROVAL",
+        "potential_amount": 0
+      }
+    },
+    {
+      "id": "R007",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 190
+      },
+      "rma": {
+        "id": "RMA-1807"
+      },
+      "credit_memo": {
+        "id": "CM-2205",
+        "amount": 220
+      },
+      "applications": [],
+      "expected": {
+        "classification": "DATA_INCONSISTENCY",
+        "potential_amount": 0
+      }
+    },
+    {
+      "id": "R008",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 450
+      },
+      "rma": {
+        "id": "RMA-1808"
+      },
+      "credit_memo": {
+        "id": "CM-2206",
+        "amount": 450
+      },
+      "applications": [
+        {
+          "invoice": "INV-903",
+          "amount": 250
+        },
+        {
+          "invoice": "INV-904",
+          "amount": 200
+        }
+      ],
+      "expected": {
+        "classification": "RESOLVED_NO_EXCEPTION",
+        "potential_amount": 0
+      }
+    },
+    {
+      "id": "R009",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 80
+      },
+      "rma": {
+        "id": "RMA-1809"
+      },
+      "credit_memo": null,
+      "applications": [],
+      "expected": {
+        "classification": "MISSING_CREDIT_MEMO",
+        "potential_amount": 80
+      }
+    },
+    {
+      "id": "R010",
+      "approval": {
+        "status": "APPROVED",
+        "amount": 300
+      },
+      "rma": {
+        "id": "RMA-1810"
+      },
+      "credit_memo": {
+        "id": "CM-2207",
+        "amount": 300
+      },
+      "applications": [
+        {
+          "invoice": "INV-905",
+          "amount": 325
+        }
+      ],
+      "expected": {
+        "classification": "DATA_INCONSISTENCY",
+        "potential_amount": 0
+      }
+    }
+  ]
+}
