@@ -29,6 +29,7 @@ jobs:
       - run: node --check lib/performance-core.mjs
       - run: node --check lib/deploy-readiness.mjs
       - run: node --check lib/recovery-exception-core.mjs
+      - run: node --check lib/invoice-contract-reconciliation-core.mjs
       - run: node --check public/commercial.js
       - run: node test/smoke.mjs
       - run: node test/p0-smoke.mjs
@@ -45,3 +46,4 @@ jobs:
       - run: node test/performance-loop-smoke.mjs
       - run: node test/vercel-smoke.mjs
       - run: node test/recovery-exception-smoke.mjs
+      - run: node test/invoice-contract-reconciliation-smoke.mjs
