@@ -1,0 +1,173 @@
+{
+  "benchmark_id": "RECOVERY-002",
+  "purpose": "Synthetic structured invoice-versus-contract reconciliation benchmark. No real client data.",
+  "contract": {
+    "supplier_id": "SUP-ACME",
+    "po_number": "PO-1001",
+    "allowed_surcharges": [
+      "FREIGHT"
+    ],
+    "lines": [
+      {
+        "sku": "SKU-A",
+        "unit_price": 20,
+        "max_quantity": 10
+      },
+      {
+        "sku": "SKU-B",
+        "unit_price": 15,
+        "max_quantity": 20
+      }
+    ]
+  },
+  "priorInvoices": [
+    {
+      "supplier_id": "SUP-ACME",
+      "invoice_number": "INV-DUP",
+      "total": 300
+    }
+  ],
+  "cases": [
+    {
+      "id": "I001",
+      "invoice": {
+        "supplier_id": "SUP-ACME",
+        "invoice_number": "INV-001",
+        "po_number": "PO-1001",
+        "total": 250,
+        "lines": [
+          {
+            "sku": "SKU-A",
+            "quantity": 10,
+            "unit_price": 25
+          }
+        ],
+        "surcharges": []
+      },
+      "expected": {
+        "types": [
+          "PRICE_MISMATCH"
+        ],
+        "potential_overcharge": 50
+      }
+    },
+    {
+      "id": "I002",
+      "invoice": {
+        "supplier_id": "SUP-ACME",
+        "invoice_number": "INV-DUP",
+        "po_number": "PO-1001",
+        "total": 300,
+        "lines": [
+          {
+            "sku": "SKU-B",
+            "quantity": 20,
+            "unit_price": 15
+          }
+        ],
+        "surcharges": []
+      },
+      "expected": {
+        "types": [
+          "DUPLICATE_INVOICE"
+        ],
+        "potential_overcharge": 300
+      }
+    },
+    {
+      "id": "I003",
+      "invoice": {
+        "supplier_id": "SUP-ACME",
+        "invoice_number": "INV-003",
+        "po_number": "PO-9999",
+        "total": 200,
+        "lines": [
+          {
+            "sku": "SKU-A",
+            "quantity": 10,
+            "unit_price": 20
+          }
+        ],
+        "surcharges": []
+      },
+      "expected": {
+        "types": [
+          "PO_MISMATCH"
+        ],
+        "potential_overcharge": 0
+      }
+    },
+    {
+      "id": "I004",
+      "invoice": {
+        "supplier_id": "SUP-ACME",
+        "invoice_number": "INV-004",
+        "po_number": "PO-1001",
+        "total": 225,
+        "lines": [
+          {
+            "sku": "SKU-B",
+            "quantity": 15,
+            "unit_price": 15
+          }
+        ],
+        "surcharges": [
+          {
+            "code": "FUEL",
+            "amount": 25
+          }
+        ]
+      },
+      "expected": {
+        "types": [
+          "UNSUPPORTED_SURCHARGE"
+        ],
+        "potential_overcharge": 25
+      }
+    },
+    {
+      "id": "I005",
+      "invoice": {
+        "supplier_id": "SUP-ACME",
+        "invoice_number": "INV-005",
+        "po_number": "PO-1001",
+        "total": 240,
+        "lines": [
+          {
+            "sku": "SKU-A",
+            "quantity": 12,
+            "unit_price": 20
+          }
+        ],
+        "surcharges": []
+      },
+      "expected": {
+        "types": [
+          "QUANTITY_MISMATCH"
+        ],
+        "potential_overcharge": 40
+      }
+    },
+    {
+      "id": "I006",
+      "invoice": {
+        "supplier_id": "SUP-ACME",
+        "invoice_number": "INV-006",
+        "po_number": "PO-1001",
+        "total": 200,
+        "lines": [
+          {
+            "sku": "SKU-A",
+            "quantity": 10,
+            "unit_price": 20
+          }
+        ],
+        "surcharges": []
+      },
+      "expected": {
+        "types": [],
+        "potential_overcharge": 0
+      }
+    }
+  ]
+}
